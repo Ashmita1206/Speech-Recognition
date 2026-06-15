@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech Recognition – Whisper AI</title>
+    <meta name="description"
+        content="Industry-level speech recognition powered by OpenAI Whisper. Upload or record audio to transcribe and classify speech.">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+    <div class="container">
+        <h1>Speech Recognition</h1>
+        <p class="subtitle">Powered by OpenAI Whisper — Upload or record audio for transcription &amp; classification
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- INPUT SECTION                                                  -->
+        <!-- ============================================================ -->
+        <div class="box" id="input-box">
+            <h2>1. Input Audio</h2>
+
+            <!-- Upload -->
+            <div class="input-section">
+                <h3>Upload File</h3>
+                <p class="hint">Supports: WAV, MP3, WebM, OGG, FLAC, M4A</p>
+                <label for="file-input" class="file-label" id="file-label">
+                    Choose Audio File
+                </label>
+                <input type="file" id="file-input" accept=".wav,.mp3,.webm,.ogg,.flac,.m4a">
+                <span id="file-name" class="file-name"></span>
+            </div>
+
+            <!-- Record -->
+            <div class="input-section">
+                <h3>Record Microphone</h3>
+                <div class="record-row">
+                    <button id="record-btn">Start Recording</button>
+                    <span id="record-status">Not recording</span>
+                </div>
+            </div>
+
+            <!-- Preview & Analyze -->
+            <div id="preview-section" style="display: none;">
+                <h3>Selected Audio</h3>
+                <audio id="audio-preview" controls></audio>
+                <button id="analyze-btn" class="primary-btn"> Analyze Speech</button>
+            </div>
+
+            <!-- Loading spinner -->
+            <div id="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>Transcribing with Whisper…</p>
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- RESULT SECTION                                                 -->
+        <!-- ============================================================ -->
+        <div id="result-box" class="box" style="display: none;">
+            <h2>2. Analysis Result</h2>
+
+            <!-- Transcription -->
+            <div class="result-card" id="transcription-card">
+                <h3>Transcription</h3>
+                <p id="transcription-text" class="transcription"></p>
+            </div>
+
+            <!-- Prediction -->
+            <div class="result-card" id="prediction-card">
+                <h3> Classification</h3>
+                <span id="prediction-badge" class="badge"></span>
+            </div>
+
+            <!-- Confidence -->
+            <div class="result-card" id="confidence-card" style="display: none;">
+                <h3>Confidence</h3>
+                <div class="confidence-bar-container">
+                    <div class="confidence-bar" id="confidence-bar"></div>
+                </div>
+                <p id="confidence-text" class="confidence-value"></p>
+            </div>
+
+            <!-- Spectrogram -->
+            <div id="spectrogram-box" class="result-card" style="display: none;">
+                <h3> Spectrogram</h3>
+                <img id="spectrogram-img" src="" alt="Mel Spectrogram">
+            </div>
+
+            <!-- Error -->
+            <p id="error-text" class="error-msg" style="display: none;"></p>
+
+            <button id="reset-btn" class="secondary-btn">↩ Start Over</button>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+
+</html>

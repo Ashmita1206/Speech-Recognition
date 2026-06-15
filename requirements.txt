@@ -1,0 +1,17 @@
+# ============================================
+# Speech Recognition – Whisper Edition
+# ============================================
+# Core
+Flask
+
+# Whisper (OpenAI's local speech-to-text model)
+openai-whisper
+
+# Audio conversion (mp3, webm, ogg → wav)
+pydub
+imageio-ffmpeg
+
+# Spectrogram visualization (optional)
+librosa
+matplotlib
+numpy

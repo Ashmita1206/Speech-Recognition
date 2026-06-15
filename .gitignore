@@ -1,0 +1,16 @@
+
+.env
+__pycache__/
+*.pt
+*.pkl
+venv/
+.venv/
+logs/
+
+*.keras
+*.wav
+*.webm
+*.png
+
+static/uploads/
+static/spectrograms/
