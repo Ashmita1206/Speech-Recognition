@@ -1,11 +1,11 @@
 # ============================================
-# Speech Recognition – Whisper Edition
+# Voice Assistant – Faster-Whisper Edition
 # ============================================
 # Core
 Flask
 
-# Whisper (OpenAI's local speech-to-text model)
-openai-whisper
+# Faster-Whisper (CTranslate2-based, optimised inference)
+faster-whisper
 
 # Audio conversion (mp3, webm, ogg → wav)
 pydub
