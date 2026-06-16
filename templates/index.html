@@ -4,95 +4,142 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Speech Recognition – Whisper AI</title>
+    <title>Voice Assistant — AI-Powered Linux Assistant</title>
     <meta name="description"
-        content="Industry-level speech recognition powered by OpenAI Whisper. Upload or record audio to transcribe and classify speech.">
+        content="Linux-compatible AI voice assistant powered by Faster-Whisper. Speak commands to control your system.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 
 <body>
-    <div class="container">
-        <h1>Speech Recognition</h1>
-        <p class="subtitle">Powered by OpenAI Whisper — Upload or record audio for transcription &amp; classification
-        </p>
+    <!-- ============================================================ -->
+    <!-- BACKGROUND AMBIENT ORBS                                       -->
+    <!-- ============================================================ -->
+    <div class="ambient-bg">
+        <div class="orb orb-1"></div>
+        <div class="orb orb-2"></div>
+        <div class="orb orb-3"></div>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- MAIN CONTAINER                                                -->
+    <!-- ============================================================ -->
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header" id="app-header">
+            <div class="header-glow"></div>
+            <div class="logo-section">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" y1="19" x2="12" y2="23" />
+                        <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                </div>
+                <div>
+                    <h1>Voice Assistant</h1>
+                    <p class="tagline">Faster-Whisper · Linux · AI-Powered</p>
+                </div>
+            </div>
+            <div class="status-indicator" id="status-indicator">
+                <span class="status-dot"></span>
+                <span class="status-text" id="status-text">Ready</span>
+            </div>
+        </header>
+
+        <!-- Chat / Conversation Area -->
+        <main class="chat-area" id="chat-area">
+            <!-- Welcome message -->
+            <div class="message assistant-message welcome-msg" id="welcome-message">
+                <div class="message-avatar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z" />
+                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                        <line x1="12" y1="19" x2="12" y2="23" />
+                        <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                </div>
+                <div class="message-content">
+                    <p class="greeting">Hello! I'm your AI voice assistant.</p>
+                    <p class="greeting-sub">Tap the microphone or upload audio to get started. I can transcribe your
+                        speech and execute Linux system commands.</p>
+                    <div class="command-hints">
+                        <span class="hint-chip" data-hint="open browser">🌐 "Open browser"</span>
+                        <span class="hint-chip" data-hint="list files">📁 "List files"</span>
+                        <span class="hint-chip" data-hint="what time is it">🕐 "What time is it?"</span>
+                        <span class="hint-chip" data-hint="check disk space">💾 "Disk space"</span>
+                        <span class="hint-chip" data-hint="open terminal">💻 "Open terminal"</span>
+                        <span class="hint-chip" data-hint="system info">🖥️ "System info"</span>
+                    </div>
+                </div>
+            </div>
+        </main>
 
         <!-- ============================================================ -->
-        <!-- INPUT SECTION                                                  -->
+        <!-- INPUT CONTROLS (Bottom Bar)                                   -->
         <!-- ============================================================ -->
-        <div class="box" id="input-box">
-            <h2>1. Input Audio</h2>
+        <footer class="input-bar" id="input-bar">
+            <!-- Waveform visualizer (hidden until recording) -->
+            <div class="waveform-container" id="waveform-container" style="display: none;">
+                <canvas id="waveform-canvas" width="300" height="50"></canvas>
+            </div>
 
-            <!-- Upload -->
-            <div class="input-section">
-                <h3>Upload File</h3>
-                <p class="hint">Supports: WAV, MP3, WebM, OGG, FLAC, M4A</p>
-                <label for="file-input" class="file-label" id="file-label">
-                    Choose Audio File
+            <div class="input-controls">
+                <!-- Upload Button -->
+                <label for="file-input" class="icon-btn upload-btn" id="upload-label" title="Upload audio file">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="17 8 12 3 7 8" />
+                        <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
                 </label>
-                <input type="file" id="file-input" accept=".wav,.mp3,.webm,.ogg,.flac,.m4a">
-                <span id="file-name" class="file-name"></span>
+                <input type="file" id="file-input" accept=".wav,.mp3,.webm,.ogg,.flac,.m4a"
+                    style="display: none;">
+
+                <!-- Microphone Button -->
+                <button class="mic-btn" id="mic-btn" title="Hold to record">
+                    <div class="mic-pulse"></div>
+                    <div class="mic-icon">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z" />
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                            <line x1="12" y1="19" x2="12" y2="23" />
+                            <line x1="8" y1="23" x2="16" y2="23" />
+                        </svg>
+                    </div>
+                </button>
+
+                <!-- Recording timer -->
+                <span class="recording-timer" id="recording-timer" style="display: none;">00:00</span>
             </div>
 
-            <!-- Record -->
-            <div class="input-section">
-                <h3>Record Microphone</h3>
-                <div class="record-row">
-                    <button id="record-btn">Start Recording</button>
-                    <span id="record-status">Not recording</span>
-                </div>
+            <p class="input-hint" id="input-hint">Tap the microphone to start recording</p>
+        </footer>
+    </div>
+
+    <!-- ============================================================ -->
+    <!-- CONFIRMATION MODAL                                            -->
+    <!-- ============================================================ -->
+    <div class="modal-overlay" id="confirm-modal" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-icon warning">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path
+                        d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                    <line x1="12" y1="9" x2="12" y2="13" />
+                    <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
             </div>
-
-            <!-- Preview & Analyze -->
-            <div id="preview-section" style="display: none;">
-                <h3>Selected Audio</h3>
-                <audio id="audio-preview" controls></audio>
-                <button id="analyze-btn" class="primary-btn"> Analyze Speech</button>
+            <h3 class="modal-title">Confirmation Required</h3>
+            <p class="modal-message" id="confirm-message">This action requires confirmation.</p>
+            <div class="modal-actions">
+                <button class="modal-btn cancel-btn" id="confirm-cancel">Cancel</button>
+                <button class="modal-btn confirm-btn" id="confirm-execute">Execute</button>
             </div>
-
-            <!-- Loading spinner -->
-            <div id="loading" style="display: none;">
-                <div class="spinner"></div>
-                <p>Transcribing with Whisper…</p>
-            </div>
-        </div>
-
-        <!-- ============================================================ -->
-        <!-- RESULT SECTION                                                 -->
-        <!-- ============================================================ -->
-        <div id="result-box" class="box" style="display: none;">
-            <h2>2. Analysis Result</h2>
-
-            <!-- Transcription -->
-            <div class="result-card" id="transcription-card">
-                <h3>Transcription</h3>
-                <p id="transcription-text" class="transcription"></p>
-            </div>
-
-            <!-- Prediction -->
-            <div class="result-card" id="prediction-card">
-                <h3> Classification</h3>
-                <span id="prediction-badge" class="badge"></span>
-            </div>
-
-            <!-- Confidence -->
-            <div class="result-card" id="confidence-card" style="display: none;">
-                <h3>Confidence</h3>
-                <div class="confidence-bar-container">
-                    <div class="confidence-bar" id="confidence-bar"></div>
-                </div>
-                <p id="confidence-text" class="confidence-value"></p>
-            </div>
-
-            <!-- Spectrogram -->
-            <div id="spectrogram-box" class="result-card" style="display: none;">
-                <h3> Spectrogram</h3>
-                <img id="spectrogram-img" src="" alt="Mel Spectrogram">
-            </div>
-
-            <!-- Error -->
-            <p id="error-text" class="error-msg" style="display: none;"></p>
-
-            <button id="reset-btn" class="secondary-btn">↩ Start Over</button>
         </div>
     </div>
 

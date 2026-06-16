@@ -1,20 +1,18 @@
 """
-Prediction module – Whisper-powered speech-to-text + keyword classification.
+Prediction module — Faster-Whisper speech-to-text for Linux Voice Assistant.
 
 Flow:
-  1. Transcribe audio with OpenAI Whisper (local model, no API key needed).
-  2. Classify the transcribed text as YES / NO / UNKNOWN.
-  3. Return transcription, classification, and a confidence score.
+  1. Load Faster-Whisper model ONCE at startup (large-v3, CPU, int8).
+  2. Transcribe incoming audio files.
+  3. Detect commands from transcribed text.
+  4. Return transcription + command info as a structured dict.
 """
 
 import os
-import re
-import math
-import whisper
 
 # ---------------------------------------------------------------------------
 # Ensure ffmpeg is on PATH before Whisper tries to use it
-# (Whisper calls ffmpeg via subprocess internally)
+# (Faster-Whisper calls ffmpeg via subprocess internally)
 # ---------------------------------------------------------------------------
 try:
     import imageio_ffmpeg
@@ -24,112 +22,78 @@ try:
 except ImportError:
     pass  # Fall back to system ffmpeg
 
-# ---------------------------------------------------------------------------
-# Load the Whisper model once at import time (cached across requests)
-# Available sizes: tiny, base, small, medium, large
-# "base" is a good trade-off between speed and accuracy.
-# ---------------------------------------------------------------------------
-print("Loading Whisper model (base)... This may take a moment on first run.")
-whisper_model = whisper.load_model("base")
-print("Whisper model loaded successfully.")
-
+from faster_whisper import WhisperModel
+from utils.commands import detect_command, execute_command
 
 # ---------------------------------------------------------------------------
-# YES / NO keyword lists (handles common variations & mishearings)
+# Load the Faster-Whisper model ONCE at module-import time.
+# large-v3 with int8 quantisation gives great accuracy with CPU efficiency.
 # ---------------------------------------------------------------------------
-YES_KEYWORDS = [
-    "yes", "yeah", "yep", "yup", "ya", "yah", "sure", "absolutely",
-    "correct", "affirmative", "indeed", "right", "okay", "ok",
-    "of course", "definitely", "certainly",
-]
-
-NO_KEYWORDS = [
-    "no", "nope", "nah", "nay", "negative", "never", "not",
-    "don't", "do not", "doesn't", "does not", "wasn't", "won't",
-]
+# Model size options: tiny, base, small, medium, large-v3
+# Using "large-v3" for best accuracy (~3 GB download on first run).
+print("[predict] Loading Faster-Whisper model (large-v3, int8)…")
+print("[predict] This may take a moment on first run (model download ~3 GB).")
+whisper_model = WhisperModel("large-v3", device="cpu", compute_type="int8")
+print("[predict] Faster-Whisper model loaded successfully.")
 
 
-def _classify_text(text: str) -> str:
+def transcribe_audio(audio_path: str) -> dict:
     """
-    Classify transcribed text as YES, NO, or UNKNOWN.
-    Uses simple keyword matching on the cleaned text.
-    """
-    cleaned = text.strip().lower()
-
-    # Remove common punctuation for better matching
-    cleaned = re.sub(r'[^\w\s]', '', cleaned)
-
-    # Check for YES keywords
-    for kw in YES_KEYWORDS:
-        if re.search(r'\b' + re.escape(kw) + r'\b', cleaned):
-            return "YES"
-
-    # Check for NO keywords
-    for kw in NO_KEYWORDS:
-        if re.search(r'\b' + re.escape(kw) + r'\b', cleaned):
-            return "NO"
-
-    return "UNKNOWN"
-
-
-def _compute_confidence(result: dict) -> float:
-    """
-    Compute a 0-1 confidence score from Whisper's segment-level log probs.
-    Whisper returns avg_logprob per segment; we convert to a probability.
-    """
-    segments = result.get("segments", [])
-    if not segments:
-        return 0.0
-
-    # Average the avg_logprob across all segments
-    avg_log_probs = [seg.get("avg_logprob", -1.0) for seg in segments]
-    mean_log_prob = sum(avg_log_probs) / len(avg_log_probs)
-
-    # Convert log-probability to a 0-1 scale (exp of log prob)
-    # Clamp to [0, 1]
-    confidence = math.exp(mean_log_prob)
-    return round(min(max(confidence, 0.0), 1.0), 4)
-
-
-def predict_audio(audio_path: str) -> dict:
-    """
-    Transcribe the audio file and classify the speech.
+    Transcribe audio and detect commands.
 
     Args:
         audio_path: Path to a WAV file (16 kHz mono recommended).
 
     Returns:
-        dict with keys:
-            transcription (str) – full transcribed text
-            prediction    (str) – YES / NO / UNKNOWN
-            confidence    (str) – e.g. "87.32%"
+        dict matching the API response format:
+        {
+            "transcription": "<clean text>",
+            "command": { ... } or null,
+            "status": "success" | "error",
+            "error": "..." (only when status is "error")
+        }
     """
     try:
-        # Transcribe with Whisper
-        result = whisper_model.transcribe(audio_path, fp16=False)
-        transcription = result.get("text", "").strip()
+        # --- Transcribe with Faster-Whisper ---
+        segments, info = whisper_model.transcribe(
+            audio_path,
+            beam_size=5,
+            language=None,        # auto-detect language
+            vad_filter=True,      # skip silence for speed
+        )
+
+        # Collect all segment texts
+        full_text_parts = []
+        for segment in segments:
+            full_text_parts.append(segment.text.strip())
+
+        transcription = " ".join(full_text_parts).strip()
 
         if not transcription:
             return {
-                "success": False,
-                "error": "Whisper could not detect any speech in the audio."
+                "transcription": "",
+                "command": None,
+                "status": "error",
+                "error": "No audio input detected",
             }
 
-        # Classify
-        prediction = _classify_text(transcription)
+        # --- Detect command from transcription ---
+        cmd_info = detect_command(transcription)
 
-        # Confidence
-        confidence = _compute_confidence(result)
+        command_result = None
+        if cmd_info is not None:
+            command_result = execute_command(cmd_info)
 
         return {
-            "success": True,
             "transcription": transcription,
-            "prediction": prediction,
-            "confidence": f"{confidence * 100:.2f}%",
+            "command": command_result,
+            "status": "success",
         }
 
     except Exception as e:
         return {
-            "success": False,
-            "error": f"Prediction failed: {e}",
+            "transcription": "",
+            "command": None,
+            "status": "error",
+            "error": f"Transcription failed: {str(e)}",
         }

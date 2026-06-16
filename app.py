@@ -1,25 +1,28 @@
 """
-Speech Recognition App – Flask Backend
-=======================================
-Powered by OpenAI Whisper (local model, no API key required).
+Voice Assistant App — Flask Backend
+====================================
+Linux-compatible AI voice assistant powered by Faster-Whisper (large-v3).
 
 Routes:
-  GET  /         → Serve the frontend
-  POST /predict  → Accept audio, transcribe, classify (YES / NO / UNKNOWN)
+  GET  /            → Serve the frontend
+  POST /transcribe  → Accept audio, transcribe, detect & execute commands
+  POST /execute     → Confirm and execute a dangerous command
+  POST /predict     → Legacy alias for /transcribe (backward compat)
 """
 
 import os
 import uuid
 from flask import Flask, request, jsonify, render_template, url_for
 
-# Import audio_processing FIRST — it configures ffmpeg for pydub + Whisper
+# Import audio_processing FIRST — it configures ffmpeg for pydub
 from utils.audio_processing import (
     convert_to_wav,
     is_supported_format,
     load_audio,
     generate_spectrogram,
 )
-from utils.predict import predict_audio
+from utils.predict import transcribe_audio
+from utils.commands import confirm_and_execute
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -44,35 +47,44 @@ def index():
     return render_template('index.html')
 
 
-@app.route('/predict', methods=['POST'])
-def predict():
+@app.route('/transcribe', methods=['POST'])
+def transcribe():
     """
-    Accept an uploaded audio file, transcribe it with Whisper,
-    and classify the speech as YES / NO / UNKNOWN.
+    Accept an uploaded audio file, transcribe it with Faster-Whisper,
+    detect commands, and execute safe ones automatically.
 
     Returns JSON:
         {
-          "success": true/false,
-          "transcription": "...",
-          "prediction": "YES" | "NO" | "UNKNOWN",
-          "confidence": "87.32%",
-          "spectrogram": "/static/spectrograms/xxx.png",
-          "error": "..."   (only when success is false)
+          "transcription": "<clean text>",
+          "command": {
+              "intent": "...",
+              "action": "...",
+              "executed": true/false,
+              "requires_confirmation": true/false,
+              "confirmation_token": "..." (if confirmation needed),
+              "warning": "..." (if confirmation needed),
+              "output": "..."
+          } or null,
+          "status": "success" or "error"
         }
     """
     try:
         # ----- Validate input -----
         if 'audio' not in request.files:
             return jsonify({
-                "success": False,
-                "error": "No audio file uploaded. Please send a file with key 'audio'."
+                "transcription": "",
+                "command": None,
+                "status": "error",
+                "error": "No audio input detected",
             }), 400
 
         audio_file = request.files['audio']
         if audio_file.filename == '':
             return jsonify({
-                "success": False,
-                "error": "Empty filename."
+                "transcription": "",
+                "command": None,
+                "status": "error",
+                "error": "No audio input detected",
             }), 400
 
         # ----- Save uploaded file -----
@@ -90,49 +102,86 @@ def predict():
         # ----- Convert to 16 kHz mono WAV (for Whisper) -----
         wav_filename = f"{unique_id}.wav"
         wav_path = os.path.join(UPLOAD_FOLDER, wav_filename)
+        convert_to_wav(raw_path, wav_path)
 
-        if original_ext != '.wav':
-            convert_to_wav(raw_path, wav_path)
-        else:
-            # Even if already .wav, normalise to 16 kHz mono
-            convert_to_wav(raw_path, wav_path)
+        # ----- Transcribe & detect commands -----
+        result = transcribe_audio(wav_path)
 
-        # ----- Generate spectrogram (optional visual) -----
-        spectrogram_url = None
-        audio_data, sr = load_audio(wav_path)
-        if audio_data is not None:
-            spec_filename = f"{unique_id}_spec.png"
-            spec_path = os.path.join(SPECTROGRAM_FOLDER, spec_filename)
-            generate_spectrogram(audio_data, sr, spec_path)
-            spectrogram_url = url_for('static', filename=f"spectrograms/{spec_filename}")
-
-        # ----- Transcribe & classify -----
-        result = predict_audio(wav_path)
-
-        if not result.get("success"):
-            return jsonify({
-                "success": False,
-                "error": result.get("error", "Unknown prediction error."),
-            }), 500
+        # ----- Clean up temp files -----
+        try:
+            if os.path.exists(raw_path) and raw_path != wav_path:
+                os.remove(raw_path)
+            if os.path.exists(wav_path):
+                os.remove(wav_path)
+        except OSError:
+            pass  # Non-critical cleanup
 
         # ----- Return response -----
+        status_code = 200 if result.get("status") == "success" else 500
+        return jsonify(result), status_code
+
+    except Exception as e:
         return jsonify({
-            "success": True,
-            "transcription": result["transcription"],
-            "prediction": result["prediction"],
-            "confidence": result["confidence"],
-            "spectrogram": spectrogram_url,
+            "transcription": "",
+            "command": None,
+            "status": "error",
+            "error": f"Transcription failed: {str(e)}",
+        }), 500
+
+
+@app.route('/execute', methods=['POST'])
+def execute():
+    """
+    Confirm and execute a dangerous command.
+
+    Expects JSON:
+        {
+          "confirmation_token": "<token from /transcribe>",
+          "confirmed": true
+        }
+
+    Returns JSON with execution result.
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "status": "error",
+                "error": "Invalid request body",
+            }), 400
+
+        token = data.get("confirmation_token")
+        confirmed = data.get("confirmed", False)
+
+        if not token or not confirmed:
+            return jsonify({
+                "status": "error",
+                "error": "Missing confirmation token or confirmation flag",
+            }), 400
+
+        result = confirm_and_execute(token)
+
+        return jsonify({
+            "command": result,
+            "status": "success" if result.get("executed") else "error",
         })
 
     except Exception as e:
         return jsonify({
-            "success": False,
-            "error": f"Server error: {str(e)}",
+            "status": "error",
+            "error": f"Execution failed: {str(e)}",
         }), 500
+
+
+# --- Legacy alias ---
+@app.route('/predict', methods=['POST'])
+def predict():
+    """Backward-compatible alias for /transcribe."""
+    return transcribe()
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=True, host='0.0.0.0', port=5000)
