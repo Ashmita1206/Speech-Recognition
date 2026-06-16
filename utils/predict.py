@@ -29,6 +29,8 @@ from utils.commands import detect_command, execute_command
 # Load the Faster-Whisper model ONCE at module-import time.
 # large-v3 with int8 quantisation gives great accuracy with CPU efficiency.
 # ---------------------------------------------------------------------------
+# Model size options: tiny, base, small, medium, large-v3
+# Using "large-v3" for best accuracy (~3 GB download on first run).
 print("[predict] Loading Faster-Whisper model (large-v3, int8)…")
 print("[predict] This may take a moment on first run (model download ~3 GB).")
 whisper_model = WhisperModel("large-v3", device="cpu", compute_type="int8")
