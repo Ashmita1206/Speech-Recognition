@@ -23,6 +23,7 @@ from utils.audio_processing import (
 )
 from utils.predict import transcribe_audio
 from utils.commands import confirm_and_execute
+from utils.translator import translate_text, get_supported_languages
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -178,6 +179,69 @@ def execute():
 def predict():
     """Backward-compatible alias for /transcribe."""
     return transcribe()
+
+
+@app.route('/translate', methods=['POST'])
+def translate():
+    """
+    Lightweight translation endpoint.
+    Expects JSON:
+        {
+          "text": "Good morning everyone",
+          "target_language": "Hindi",
+          "source_language": "en" (optional)
+        }
+    Returns JSON:
+        {
+          "status": "success",
+          "source_text": "Good morning everyone",
+          "translated_text": "सुप्रभात सभी को",
+          "target_language": "Hindi",
+          "source_language": "en"
+        }
+    """
+    try:
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({
+                "status": "error",
+                "error": "Invalid request body",
+            }), 400
+
+        text = data.get("text", "").strip()
+        target_language = data.get("target_language", "").strip()
+        source_language = data.get("source_language", None)
+
+        if not text:
+            return jsonify({
+                "status": "error",
+                "error": "No text provided to translate.",
+            }), 400
+
+        if not target_language:
+            return jsonify({
+                "status": "error",
+                "error": "No target language specified.",
+            }), 400
+
+        result = translate_text(text, target_language, source_language)
+        status_code = 200 if result.get("status") == "success" else 400
+        return jsonify(result), status_code
+
+    except Exception:
+        return jsonify({
+            "status": "error",
+            "error": "Translation couldn't be completed.",
+        }), 500
+
+
+@app.route('/languages', methods=['GET'])
+def languages():
+    """Return available primary translation languages."""
+    return jsonify({
+        "status": "success",
+        "languages": list(get_supported_languages().keys()),
+    })
 
 
 # ---------------------------------------------------------------------------

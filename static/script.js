@@ -1,522 +1,1129 @@
 /**
- * Voice Assistant — Frontend Logic
- * ==================================
- * Handles:
- *  - Microphone recording via MediaRecorder API
- *  - File upload (wav, mp3, webm, ogg, flac, m4a)
- *  - Sending audio to /transcribe
- *  - Rendering conversation-style messages
- *  - Waveform visualisation during recording
- *  - Confirmation flow for dangerous commands
+ * Speech Recognition Studio — Frontend Logic
+ * ============================================
+ * Pure Speech-to-Text Studio application handling:
+ *  - Microphone voice recording via MediaRecorder API
+ *  - Live audio waveform canvas visualization
+ *  - Audio file upload (drag & drop and file picker)
+ *  - Backend Faster-Whisper integration via /transcribe
+ *  - Transcript display, copy (with toast feedback), and .txt download
+ *  - Workspace clear/reset
+ *  - Local browser transcription history
  */
 
 document.addEventListener('DOMContentLoaded', () => {
-    // --- DOM References ---
-    const chatArea         = document.getElementById('chat-area');
-    const micBtn           = document.getElementById('mic-btn');
-    const fileInput        = document.getElementById('file-input');
-    const uploadLabel      = document.getElementById('upload-label');
-    const inputHint        = document.getElementById('input-hint');
-    const recordingTimer   = document.getElementById('recording-timer');
-    const statusIndicator  = document.getElementById('status-indicator');
-    const statusText       = document.getElementById('status-text');
-    const waveformContainer = document.getElementById('waveform-container');
-    const waveformCanvas   = document.getElementById('waveform-canvas');
+    // =========================================================================
+    // 1. STATE & CONSTANTS
+    // =========================================================================
+    const STORAGE_KEY_HISTORY = 'speech_studio_history_v1';
 
-    // Confirmation modal
-    const confirmModal     = document.getElementById('confirm-modal');
-    const confirmMessage   = document.getElementById('confirm-message');
-    const confirmExecute   = document.getElementById('confirm-execute');
-    const confirmCancel    = document.getElementById('confirm-cancel');
-
-    let mediaRecorder      = null;
-    let audioChunks        = [];
-    let isRecording        = false;
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
     let recordingStartTime = null;
-    let timerInterval      = null;
-    let audioContext        = null;
-    let analyser            = null;
-    let animationFrameId    = null;
+    let recordingTimerInterval = null;
 
-    // Pending confirmation token
-    let pendingToken       = null;
+    let audioContext = null;
+    let analyser = null;
+    let animationFrameId = null;
 
+    let selectedUploadFile = null;
+    let currentTranscription = '';
+    let currentMetadata = { language: '—', duration: '—', processingTime: '—' };
 
-    // =========================================================================
-    // UTILITY: Create message elements
-    // =========================================================================
-    function createAssistantAvatar() {
-        const avatar = document.createElement('div');
-        avatar.className = 'message-avatar';
-        avatar.innerHTML = `
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z"/>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                <line x1="12" y1="19" x2="12" y2="23"/>
-                <line x1="8" y1="23" x2="16" y2="23"/>
-            </svg>
-        `;
-        return avatar;
-    }
-
-    function createUserAvatar() {
-        const avatar = document.createElement('div');
-        avatar.className = 'message-avatar';
-        avatar.textContent = 'You';
-        return avatar;
-    }
-
-    function addUserMessage(text) {
-        const msg = document.createElement('div');
-        msg.className = 'message user-message';
-
-        const content = document.createElement('div');
-        content.className = 'message-content';
-        content.innerHTML = `<p class="transcription-text">"${escapeHtml(text)}"</p>`;
-
-        msg.appendChild(content);
-        msg.appendChild(createUserAvatar());
-        chatArea.appendChild(msg);
-        scrollToBottom();
-    }
-
-    function addAssistantMessage(html) {
-        const msg = document.createElement('div');
-        msg.className = 'message assistant-message';
-
-        const content = document.createElement('div');
-        content.className = 'message-content';
-        content.innerHTML = html;
-
-        msg.appendChild(createAssistantAvatar());
-        msg.appendChild(content);
-        chatArea.appendChild(msg);
-        scrollToBottom();
-        return content;
-    }
-
-    function addLoadingMessage() {
-        const msg = document.createElement('div');
-        msg.className = 'message assistant-message';
-        msg.id = 'loading-message';
-
-        const content = document.createElement('div');
-        content.className = 'message-content';
-        content.innerHTML = `
-            <div class="loading-dots">
-                <span></span><span></span><span></span>
-            </div>
-        `;
-
-        msg.appendChild(createAssistantAvatar());
-        msg.appendChild(content);
-        chatArea.appendChild(msg);
-        scrollToBottom();
-    }
-
-    function removeLoadingMessage() {
-        const el = document.getElementById('loading-message');
-        if (el) el.remove();
-    }
-
-    function addErrorMessage(text) {
-        addAssistantMessage(`
-            <p class="error-content">
-                <span class="error-icon">⚠️</span>
-                ${escapeHtml(text)}
-            </p>
-        `);
-    }
-
-    function scrollToBottom() {
-        requestAnimationFrame(() => {
-            chatArea.scrollTop = chatArea.scrollHeight;
-        });
-    }
-
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    function setStatus(state, text) {
-        statusIndicator.className = 'status-indicator ' + state;
-        statusText.textContent = text;
-    }
-
-    function formatTime(seconds) {
-        const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-        const s = (seconds % 60).toString().padStart(2, '0');
-        return `${m}:${s}`;
-    }
-
+    // Translation state
+    let lastTranscription = '';
+    let lastSourceLanguage = 'en';
+    let currentTranslationData = null; // { sourceText, translatedText, targetLanguage, sourceLanguage }
+    let lastAttemptedTargetLanguage = 'Hindi';
+    let isSpeaking = false;
 
     // =========================================================================
-    // WAVEFORM VISUALIZER
+    // 2. DOM REFERENCES
     // =========================================================================
-    function startWaveform(stream) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        analyser = audioContext.createAnalyser();
-        const source = audioContext.createMediaStreamSource(stream);
-        source.connect(analyser);
-        analyser.fftSize = 256;
+    // Status & Error
+    const statusBanner = document.getElementById('status-banner');
+    const statusMessage = document.getElementById('status-message');
+    const errorNotice = document.getElementById('error-notice');
+    const errorTitle = document.getElementById('error-title');
+    const errorDesc = document.getElementById('error-desc');
+    const btnCloseError = document.getElementById('btn-close-error');
+    const toastContainer = document.getElementById('toast-container');
 
-        const bufferLength = analyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-        const ctx = waveformCanvas.getContext('2d');
+    // Navigation
+    const btnScrollHistory = document.getElementById('btn-scroll-history');
+    const btnResetWorkspace = document.getElementById('btn-reset-workspace');
 
-        waveformContainer.style.display = 'block';
+    // Recording Card
+    const recordReadyView = document.getElementById('record-ready-view');
+    const recordActiveView = document.getElementById('record-active-view');
+    const btnStartRecord = document.getElementById('btn-start-record');
+    const btnStopRecord = document.getElementById('btn-stop-record');
+    const btnCancelRecord = document.getElementById('btn-cancel-record');
+    const recordingTimer = document.getElementById('recording-timer');
+    const waveformCanvas = document.getElementById('waveform-canvas');
 
-        function draw() {
-            animationFrameId = requestAnimationFrame(draw);
-            analyser.getByteFrequencyData(dataArray);
+    // Upload Card
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('file-input');
+    const filePreviewCard = document.getElementById('file-preview-card');
+    const previewFilename = document.getElementById('preview-filename');
+    const previewFilesize = document.getElementById('preview-filesize');
+    const btnRemoveFile = document.getElementById('btn-remove-file');
+    const btnTranscribeFile = document.getElementById('btn-transcribe-file');
 
-            const w = waveformCanvas.width;
-            const h = waveformCanvas.height;
-            ctx.clearRect(0, 0, w, h);
+    // Transcript Section
+    const transcriptSection = document.getElementById('transcript-section');
+    const transcriptText = document.getElementById('transcript-text');
+    const transcriptStatusBadge = document.getElementById('transcript-status-badge');
+    const btnCopyTranscript = document.getElementById('btn-copy-transcript');
+    const copyBtnText = document.getElementById('copy-btn-text');
+    const btnDownloadTranscript = document.getElementById('btn-download-transcript');
+    const btnClearTranscript = document.getElementById('btn-clear-transcript');
 
-            const barWidth = (w / bufferLength) * 2.5;
-            let x = 0;
+    // Metadata Bar
+    const metaLanguage = document.getElementById('meta-language');
+    const metaDuration = document.getElementById('meta-duration');
+    const metaProcessing = document.getElementById('meta-processing');
 
-            for (let i = 0; i < bufferLength; i++) {
-                const barHeight = (dataArray[i] / 255) * h * 0.9;
+    // Translation Elements
+    const translationOfferBox = document.getElementById('translation-offer-box');
+    const btnOfferTranslate = document.getElementById('btn-offer-translate');
+    const btnOfferSkip = document.getElementById('btn-offer-skip');
 
-                const gradient = ctx.createLinearGradient(0, h, 0, h - barHeight);
-                gradient.addColorStop(0, 'rgba(99, 102, 241, 0.6)');
-                gradient.addColorStop(1, 'rgba(139, 92, 246, 0.9)');
+    const translationSelectorBox = document.getElementById('translation-selector-box');
+    const targetLanguageSelect = document.getElementById('target-language-select');
+    const otherLanguageWrapper = document.getElementById('other-language-wrapper');
+    const otherLanguageInput = document.getElementById('other-language-input');
+    const btnTriggerTranslate = document.getElementById('btn-trigger-translate');
+    const triggerTranslateText = document.getElementById('trigger-translate-text');
+    const btnCloseSelector = document.getElementById('btn-close-selector');
 
-                ctx.fillStyle = gradient;
-                ctx.fillRect(x, h - barHeight, barWidth - 1, barHeight);
-                x += barWidth + 1;
-            }
+    const translationErrorNotice = document.getElementById('translation-error-notice');
+    const translationErrorMsg = document.getElementById('translation-error-msg');
+    const btnRetryTranslate = document.getElementById('btn-retry-translate');
+
+    const translationDisplayCard = document.getElementById('translation-display-card');
+    const translationRouteText = document.getElementById('translation-route-text');
+    const btnCopyTranslation = document.getElementById('btn-copy-translation');
+    const copyTranslationBtnText = document.getElementById('copy-translation-btn-text');
+    const btnDownloadTranslation = document.getElementById('btn-download-translation');
+    const btnListenTranslation = document.getElementById('btn-listen-translation');
+    const listenTranslationBtnText = document.getElementById('listen-translation-btn-text');
+    const btnRetranslate = document.getElementById('btn-retranslate');
+    const transOriginalContent = document.getElementById('trans-original-content');
+    const transTargetTitle = document.getElementById('trans-target-title');
+    const transTargetContent = document.getElementById('trans-target-content');
+
+    // History Section
+    const historySection = document.getElementById('history-section');
+    const historyList = document.getElementById('history-list');
+    const historyEmptyPlaceholder = document.getElementById('history-empty-placeholder');
+    const btnClearHistory = document.getElementById('btn-clear-history');
+
+    // =========================================================================
+    // 3. INITIALIZATION
+    // =========================================================================
+    function init() {
+        renderHistoryList();
+        setupEventListeners();
+    }
+
+    // =========================================================================
+    // 4. MICROPHONE RECORDING WORKFLOW
+    // =========================================================================
+    async function startRecording() {
+        hideError();
+        hideStatus();
+
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showError('Microphone not supported', 'Your browser does not support audio recording.');
+            return;
         }
 
-        draw();
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+            const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+                ? 'audio/webm;codecs=opus'
+                : 'audio/webm';
+
+            mediaRecorder = new MediaRecorder(stream, { mimeType });
+            audioChunks = [];
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    audioChunks.push(event.data);
+                }
+            };
+
+            mediaRecorder.onstop = async () => {
+                // Stop audio tracks
+                stream.getTracks().forEach(track => track.stop());
+                stopWaveform();
+
+                if (audioChunks.length === 0) {
+                    resetRecordingUI();
+                    return;
+                }
+
+                const audioBlob = new Blob(audioChunks, { type: mimeType });
+                const audioFile = new File([audioBlob], 'microphone_recording.webm', { type: mimeType });
+                
+                resetRecordingUI();
+                await sendAudioToTranscribe(audioFile, 'Microphone Recording');
+            };
+
+            mediaRecorder.start();
+            isRecording = true;
+
+            // Update UI to Active Recording State
+            recordReadyView.style.display = 'none';
+            recordActiveView.style.display = 'flex';
+            recordingTimer.textContent = '00:00';
+            recordingStartTime = Date.now();
+
+            clearInterval(recordingTimerInterval);
+            recordingTimerInterval = setInterval(() => {
+                const elapsedSec = Math.floor((Date.now() - recordingStartTime) / 1000);
+                recordingTimer.textContent = formatDuration(elapsedSec);
+            }, 1000);
+
+            // Start Audio Waveform Canvas Visualizer
+            startWaveform(stream);
+
+        } catch (err) {
+            console.error('Microphone error:', err);
+            resetRecordingUI();
+            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                showError('Microphone access denied', 'Please allow microphone access in your browser settings and try again.');
+            } else {
+                showError('Microphone unavailable', 'Could not initialize microphone. Please check your audio device.');
+            }
+        }
+    }
+
+    function stopRecording() {
+        if (!isRecording || !mediaRecorder) return;
+        showStatus('Processing audio...');
+        mediaRecorder.stop();
+        isRecording = false;
+        clearInterval(recordingTimerInterval);
+    }
+
+    function cancelRecording() {
+        if (!isRecording) return;
+        audioChunks = [];
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop();
+        }
+        isRecording = false;
+        clearInterval(recordingTimerInterval);
+        stopWaveform();
+        resetRecordingUI();
+        hideStatus();
+        stopSpeechSynthesis();
+    }
+
+    function resetRecordingUI() {
+        recordActiveView.style.display = 'none';
+        recordReadyView.style.display = 'flex';
+        recordingTimer.textContent = '00:00';
+        clearInterval(recordingTimerInterval);
+        stopWaveform();
+    }
+
+    // =========================================================================
+    // 5. WAVEFORM AUDIO VISUALIZATION
+    // =========================================================================
+    function startWaveform(stream) {
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioContext.createAnalyser();
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+            analyser.fftSize = 64;
+
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            const ctx = waveformCanvas.getContext('2d');
+
+            function draw() {
+                animationFrameId = requestAnimationFrame(draw);
+                analyser.getByteFrequencyData(dataArray);
+
+                const width = waveformCanvas.width;
+                const height = waveformCanvas.height;
+                ctx.clearRect(0, 0, width, height);
+
+                const barWidth = Math.floor(width / bufferLength) - 1;
+                let x = 2;
+
+                for (let i = 0; i < bufferLength; i++) {
+                    const barHeight = Math.max(3, (dataArray[i] / 255) * height * 0.85);
+                    const y = (height - barHeight) / 2;
+
+                    ctx.fillStyle = '#1e3a8a';
+                    ctx.fillRect(x, y, barWidth, barHeight);
+                    x += barWidth + 2;
+                }
+            }
+            draw();
+        } catch (e) {
+            console.warn('Waveform audio visualizer error:', e);
+        }
     }
 
     function stopWaveform() {
         if (animationFrameId) cancelAnimationFrame(animationFrameId);
-        if (audioContext) {
+        if (audioContext && audioContext.state !== 'closed') {
             audioContext.close();
             audioContext = null;
         }
-        waveformContainer.style.display = 'none';
     }
 
-
     // =========================================================================
-    // MICROPHONE RECORDING
+    // 6. AUDIO FILE UPLOAD WORKFLOW
     // =========================================================================
-    micBtn.addEventListener('click', async () => {
-        if (!isRecording) {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    function handleFileSelection(file) {
+        hideError();
+        if (!file) return;
 
-                const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-                    ? 'audio/webm;codecs=opus'
-                    : 'audio/webm';
+        const allowedExtensions = ['wav', 'mp3', 'm4a', 'webm', 'flac', 'ogg'];
+        const ext = file.name.split('.').pop().toLowerCase();
 
-                mediaRecorder = new MediaRecorder(stream, { mimeType });
-                audioChunks = [];
-
-                mediaRecorder.ondataavailable = (e) => {
-                    if (e.data.size > 0) audioChunks.push(e.data);
-                };
-
-                mediaRecorder.onstop = () => {
-                    const audioBlob = new Blob(audioChunks, { type: mimeType });
-                    const audioFile = new File([audioBlob], 'recording.webm', { type: mimeType });
-
-                    // Release microphone
-                    stream.getTracks().forEach(track => track.stop());
-                    stopWaveform();
-
-                    // Send to server
-                    sendAudio(audioFile);
-                };
-
-                mediaRecorder.start();
-                isRecording = true;
-                micBtn.classList.add('recording');
-                setStatus('recording', 'Recording…');
-                inputHint.textContent = 'Tap again to stop recording';
-
-                // Start timer
-                recordingStartTime = Date.now();
-                recordingTimer.style.display = 'inline';
-                timerInterval = setInterval(() => {
-                    const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
-                    recordingTimer.textContent = formatTime(elapsed);
-                }, 1000);
-
-                // Start waveform
-                startWaveform(stream);
-
-            } catch (err) {
-                console.error('Microphone access error:', err);
-                addErrorMessage('Microphone access denied or unavailable. Please check browser permissions.');
-            }
-        } else {
-            // Stop recording
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-            }
-            isRecording = false;
-            micBtn.classList.remove('recording');
-            recordingTimer.style.display = 'none';
-            clearInterval(timerInterval);
-            inputHint.textContent = 'Tap the microphone to start recording';
+        if (!allowedExtensions.includes(ext)) {
+            showError('Unsupported audio format', `File extension ".${ext}" is not supported. Please choose a WAV, MP3, M4A, WebM, FLAC, or OGG file.`);
+            return;
         }
-    });
 
+        selectedUploadFile = file;
+        previewFilename.textContent = file.name;
+        previewFilesize.textContent = formatFileSize(file.size);
+
+        dropzone.style.display = 'none';
+        filePreviewCard.style.display = 'flex';
+    }
+
+    function removeSelectedFile() {
+        selectedUploadFile = null;
+        fileInput.value = '';
+        filePreviewCard.style.display = 'none';
+        dropzone.style.display = 'flex';
+    }
 
     // =========================================================================
-    // FILE UPLOAD
+    // 7. SEND TO BACKEND (/transcribe)
     // =========================================================================
-    fileInput.addEventListener('change', (e) => {
-        if (e.target.files.length > 0) {
-            const file = e.target.files[0];
-            sendAudio(file);
-            fileInput.value = '';  // Reset so same file can be re-uploaded
-        }
-    });
-
-
-    // =========================================================================
-    // SEND AUDIO TO SERVER
-    // =========================================================================
-    async function sendAudio(audioFile) {
-        addUserMessage(`🎤 Audio: ${audioFile.name}`);
-        addLoadingMessage();
-        setStatus('processing', 'Transcribing…');
-        inputHint.textContent = 'Processing your audio…';
+    async function sendAudioToTranscribe(file, defaultTitle = 'Audio File') {
+        hideError();
+        showStatus('Transcribing speech...');
+        setControlsDisabled(true);
 
         const formData = new FormData();
-        formData.append('audio', audioFile);
+        formData.append('audio', file);
 
         try {
             const response = await fetch('/transcribe', {
                 method: 'POST',
-                body: formData,
+                body: formData
             });
 
             let data;
             try {
                 data = await response.json();
-            } catch (_) {
-                throw new Error('Invalid response from server.');
+            } catch (jsonErr) {
+                throw new Error('Unexpected response format from server.');
             }
 
-            removeLoadingMessage();
+            hideStatus();
+            setControlsDisabled(false);
 
-            if (data.status === 'success') {
-                renderSuccessResponse(data);
+            if (response.ok && data.status === 'success') {
+                const text = (data.transcription || '').trim();
+
+                if (!text) {
+                    showError('No speech detected', 'Faster-Whisper did not detect readable speech in the audio.');
+                    return;
+                }
+
+                // Check if this transcribed audio is a voice translation command
+                const voiceTargetLang = detectVoiceTranslationCommand(text);
+
+                if (voiceTargetLang) {
+                    // Use the most recent transcription as the source text
+                    const sourceTextToTranslate = (lastTranscription || transcriptText.value || '').trim();
+
+                    if (!sourceTextToTranslate) {
+                        showError('Please record something first.', 'There is no previous transcription available to translate.');
+                        showToast('Please record something first.');
+                        return;
+                    }
+
+                    // Directly translate the latest transcription into the requested language
+                    showToast(`Voice command detected: translating to ${voiceTargetLang}`);
+                    executeTranslation(sourceTextToTranslate, voiceTargetLang, lastSourceLanguage);
+                    return;
+                }
+
+                // Standard speech transcription
+                currentTranscription = text;
+                lastTranscription = text;
+                lastSourceLanguage = data.language || 'en';
+
+                transcriptText.value = text;
+                transcriptStatusBadge.textContent = 'Completed';
+                transcriptStatusBadge.style.color = 'var(--success)';
+
+                // Update metadata
+                const lang = (data.language || 'en').toUpperCase();
+                const dur = data.duration ? formatDuration(Math.round(data.duration)) : '—';
+                const proc = data.processing_time ? `${data.processing_time}s` : '—';
+
+                metaLanguage.textContent = lang;
+                metaDuration.textContent = dur;
+                metaProcessing.textContent = proc;
+
+                currentMetadata = { language: lang, duration: dur, processingTime: proc };
+
+                // Enable action buttons
+                btnCopyTranscript.disabled = false;
+                btnDownloadTranscript.disabled = false;
+                btnClearTranscript.disabled = false;
+
+                // Reset previous translation card and display offer prompt
+                hideTranslationResult();
+                hideTranslationSelector();
+                hideTranslationError();
+                showTranslationOffer();
+
+                // Save to local history
+                saveHistoryItem({
+                    id: 'tx-' + Date.now(),
+                    title: file.name.replace(/\.[^/.]+$/, '') || defaultTitle,
+                    text: text,
+                    language: lang,
+                    duration: dur,
+                    processingTime: proc,
+                    timestamp: Date.now()
+                });
+
+                // Scroll down to transcript
+                transcriptSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
             } else {
-                addErrorMessage(data.error || 'An unknown error occurred.');
+                const errMsg = data.error || 'The audio could not be transcribed.';
+                showError('Transcription failed', errMsg);
             }
-        } catch (err) {
-            console.error('Request error:', err);
-            removeLoadingMessage();
-            addErrorMessage(err.message || 'Could not connect to the server.');
-        }
 
-        setStatus('', 'Ready');
-        inputHint.textContent = 'Tap the microphone to start recording';
+        } catch (err) {
+            console.error('Request failed:', err);
+            hideStatus();
+            setControlsDisabled(false);
+            showError('Something went wrong', 'Could not complete transcription. Please ensure the server is running and try again.');
+        }
     }
 
+    // =========================================================================
+    // 8. TRANSCRIPT ACTIONS (Copy, Download, Clear)
+    // =========================================================================
+    function copyTranscript() {
+        const text = transcriptText.value.trim();
+        if (!text) return;
+
+        navigator.clipboard.writeText(text).then(() => {
+            copyBtnText.textContent = 'Copied';
+            showToast('Transcript copied successfully.');
+            setTimeout(() => {
+                copyBtnText.textContent = 'Copy';
+            }, 1800);
+        }).catch(() => {
+            transcriptText.select();
+            document.execCommand('copy');
+            showToast('Transcript copied successfully.');
+        });
+    }
+
+    function downloadTranscript() {
+        const text = transcriptText.value.trim();
+        if (!text) return;
+
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const hh = String(now.getHours()).padStart(2, '0');
+        const min = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+
+        const filename = `transcript_${yyyy}${mm}${dd}_${hh}${min}${ss}.txt`;
+
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast(`Downloaded: ${filename}`);
+    }
+
+    function clearTranscript() {
+        transcriptText.value = '';
+        currentTranscription = '';
+        lastTranscription = '';
+        currentTranslationData = null;
+        transcriptStatusBadge.textContent = 'Ready';
+        transcriptStatusBadge.style.color = 'var(--text-secondary)';
+
+        metaLanguage.textContent = '—';
+        metaDuration.textContent = '—';
+        metaProcessing.textContent = '—';
+
+        btnCopyTranscript.disabled = true;
+        btnDownloadTranscript.disabled = true;
+        btnClearTranscript.disabled = true;
+
+        hideTranslationOffer();
+        hideTranslationSelector();
+        hideTranslationResult();
+        hideTranslationError();
+        stopSpeechSynthesis();
+    }
+
+    function resetWorkspace() {
+        clearTranscript();
+        removeSelectedFile();
+        cancelRecording();
+        hideError();
+        hideStatus();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
 
     // =========================================================================
-    // RENDER RESPONSE
+    // 9. HISTORY MANAGEMENT (localStorage)
     // =========================================================================
-    function renderSuccessResponse(data) {
-        let html = '';
+    function loadHistory() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY_HISTORY);
+            return raw ? JSON.parse(raw) : [];
+        } catch (e) {
+            return [];
+        }
+    }
 
-        // Transcription
-        if (data.transcription) {
-            html += `<p class="transcription-text">"${escapeHtml(data.transcription)}"</p>`;
+    function saveHistoryItem(item) {
+        const list = loadHistory();
+        list.unshift(item);
+        // Keep at most 20 items
+        if (list.length > 20) list.pop();
+        try {
+            localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(list));
+        } catch (e) {}
+        renderHistoryList();
+    }
+
+    function renderHistoryList() {
+        const items = loadHistory();
+        historyList.innerHTML = '';
+
+        if (!items || items.length === 0) {
+            historyList.appendChild(historyEmptyPlaceholder);
+            historyEmptyPlaceholder.style.display = 'block';
+            return;
         }
 
-        // Command result
-        if (data.command) {
-            const cmd = data.command;
+        historyEmptyPlaceholder.style.display = 'none';
 
-            if (cmd.requires_confirmation) {
-                // Dangerous command — needs confirmation
-                const cardClass = 'warning';
-                html += `
-                    <div class="command-card ${cardClass}">
-                        <div class="command-label">⚠️ Dangerous Command Detected</div>
-                        <div class="command-intent">${escapeHtml(cmd.intent || '')}</div>
-                        ${cmd.action ? `<div class="command-action">${escapeHtml(cmd.action)}</div>` : ''}
-                        <div class="command-output">${escapeHtml(cmd.warning || '')}</div>
-                        <button class="inline-confirm-btn" data-token="${escapeHtml(cmd.confirmation_token)}">
-                            ⚡ Confirm & Execute
-                        </button>
-                        <button class="inline-cancel-btn" data-token-cancel="true">
-                            Cancel
-                        </button>
-                    </div>
-                `;
-            } else {
-                // Normal command result
-                const cardClass = cmd.executed ? 'executed' : 'error';
-                html += `
-                    <div class="command-card ${cardClass}">
-                        <div class="command-label">${cmd.executed ? '✅ Command Executed' : '❌ Command Failed'}</div>
-                        <div class="command-intent">${escapeHtml(cmd.intent || '')}</div>
-                        ${cmd.action ? `<div class="command-action">${escapeHtml(String(cmd.action))}</div>` : ''}
-                        <div class="command-output">${escapeHtml(cmd.output || '')}</div>
-                    </div>
-                `;
-            }
-        } else if (data.transcription) {
-            // No command detected — just transcription
-            html += `
-                <div class="command-card">
-                    <div class="command-label">No command detected</div>
-                    <div class="command-output">Transcription returned only. No matching system command was found.</div>
+        items.forEach(item => {
+            const row = document.createElement('div');
+            row.className = 'history-item';
+            row.tabIndex = 0;
+            row.setAttribute('role', 'button');
+            row.setAttribute('aria-label', `Restore transcript for ${item.title}`);
+
+            const dateStr = new Date(item.timestamp).toLocaleString([], {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+
+            row.innerHTML = `
+                <div class="history-item-body">
+                    <span class="history-item-title">${escapeHtml(item.title)}</span>
+                    <span class="history-item-meta">
+                        ${escapeHtml(item.text.slice(0, 80))}${item.text.length > 80 ? '…' : ''} · ${escapeHtml(item.duration)} · ${escapeHtml(dateStr)}
+                    </span>
+                </div>
+                <div class="history-item-actions">
+                    <button type="button" class="btn-history-del" title="Delete from history" aria-label="Delete item">Delete</button>
                 </div>
             `;
-        }
 
-        const content = addAssistantMessage(html);
-
-        // Attach event listeners for inline confirm/cancel buttons
-        const confirmBtn = content.querySelector('.inline-confirm-btn');
-        if (confirmBtn) {
-            confirmBtn.addEventListener('click', () => {
-                const token = confirmBtn.dataset.token;
-                executeConfirmedCommand(token, content);
+            // Click row to restore transcript
+            row.addEventListener('click', (e) => {
+                if (e.target.closest('.btn-history-del')) return;
+                restoreTranscript(item);
             });
-        }
 
-        const cancelBtn = content.querySelector('.inline-cancel-btn');
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', () => {
-                // Replace the card with "cancelled" message
-                const card = content.querySelector('.command-card.warning');
-                if (card) {
-                    card.className = 'command-card';
-                    card.innerHTML = `
-                        <div class="command-label">🚫 Cancelled</div>
-                        <div class="command-output">The dangerous command was not executed.</div>
-                    `;
+            row.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    if (e.target.closest('.btn-history-del')) return;
+                    e.preventDefault();
+                    restoreTranscript(item);
                 }
             });
+
+            // Delete item button
+            row.querySelector('.btn-history-del').addEventListener('click', (e) => {
+                e.stopPropagation();
+                deleteHistoryItem(item.id);
+            });
+
+            historyList.appendChild(row);
+        });
+    }
+
+    function restoreTranscript(item) {
+        transcriptText.value = item.text;
+        currentTranscription = item.text;
+        lastTranscription = item.text;
+        lastSourceLanguage = item.language || 'en';
+        transcriptStatusBadge.textContent = 'Restored';
+        transcriptStatusBadge.style.color = 'var(--text-secondary)';
+
+        metaLanguage.textContent = item.language || '—';
+        metaDuration.textContent = item.duration || '—';
+        metaProcessing.textContent = item.processingTime || '—';
+
+        btnCopyTranscript.disabled = false;
+        btnDownloadTranscript.disabled = false;
+        btnClearTranscript.disabled = false;
+
+        hideTranslationResult();
+        hideTranslationSelector();
+        hideTranslationError();
+        showTranslationOffer();
+
+        transcriptSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        showToast('Transcript loaded from history.');
+    }
+
+    function deleteHistoryItem(id) {
+        const items = loadHistory().filter(i => i.id !== id);
+        try {
+            localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(items));
+        } catch (e) {}
+        renderHistoryList();
+    }
+
+    function clearAllHistory() {
+        if (!confirm('Are you sure you want to clear transcription history?')) return;
+        try {
+            localStorage.removeItem(STORAGE_KEY_HISTORY);
+        } catch (e) {}
+        renderHistoryList();
+        showToast('History cleared.');
+    }
+
+    // =========================================================================
+    // 10. UI NOTIFICATIONS & HELPERS
+    // =========================================================================
+    function showStatus(msg) {
+        statusMessage.textContent = msg;
+        statusBanner.style.display = 'flex';
+    }
+
+    function hideStatus() {
+        statusBanner.style.display = 'none';
+    }
+
+    function showError(title, desc) {
+        errorTitle.textContent = title;
+        errorDesc.textContent = desc;
+        errorNotice.style.display = 'flex';
+    }
+
+    function hideError() {
+        errorNotice.style.display = 'none';
+    }
+
+    function showToast(message) {
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.textContent = message;
+        toastContainer.appendChild(toast);
+        setTimeout(() => {
+            toast.remove();
+        }, 2200);
+    }
+
+    function setControlsDisabled(disabled) {
+        btnStartRecord.disabled = disabled;
+        btnTranscribeFile.disabled = disabled;
+    }
+
+    function formatDuration(seconds) {
+        const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+        const s = (seconds % 60).toString().padStart(2, '0');
+        return `${m}:${s}`;
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / 1048576).toFixed(1) + ' MB';
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    // =========================================================================
+    // 10.1 TRANSLATION MODULE & VOICE COMMAND WORKFLOW
+    // =========================================================================
+    const VOICE_TRANSLATE_PATTERNS = [
+        /(?:translate|convert)(?:\s+(?:this|it|that|my\s+last\s+transcription|the\s+transcription|the\s+text))?\s+(?:in)?to\s+([a-zA-Z\-]+)/i,
+        /give\s+me\s+the\s+([a-zA-Z\-]+)\s+translation/i,
+        /give\s+me\s+the\s+translation\s+(?:in|to)\s+([a-zA-Z\-]+)/i,
+        /how\s+do\s+you\s+say\s+this\s+in\s+([a-zA-Z\-]+)/i,
+        /translate\s+(?:this|it|that)?\s+in\s+([a-zA-Z\-]+)/i,
+    ];
+
+    const CANONICAL_LANG_NAMES = {
+        'english': 'English',
+        'hindi': 'Hindi',
+        'spanish': 'Spanish',
+        'french': 'French',
+        'german': 'German',
+        'japanese': 'Japanese',
+        'korean': 'Korean',
+        'chinese': 'Chinese',
+        'arabic': 'Arabic',
+        'punjabi': 'Punjabi',
+        'bengali': 'Bengali',
+        'marathi': 'Marathi',
+        'gujarati': 'Gujarati',
+        'tamil': 'Tamil',
+        'telugu': 'Telugu',
+        'kannada': 'Kannada',
+        'malayalam': 'Malayalam',
+        'italian': 'Italian',
+        'portuguese': 'Portuguese',
+        'russian': 'Russian',
+        'turkish': 'Turkish',
+        'dutch': 'Dutch',
+    };
+
+    const TTS_LANG_MAP = {
+        'hindi': 'hi-IN',
+        'english': 'en-US',
+        'spanish': 'es-ES',
+        'french': 'fr-FR',
+        'german': 'de-DE',
+        'japanese': 'ja-JP',
+        'korean': 'ko-KR',
+        'chinese': 'zh-CN',
+        'arabic': 'ar-SA',
+        'punjabi': 'pa-IN',
+        'bengali': 'bn-IN',
+        'marathi': 'mr-IN',
+        'gujarati': 'gu-IN',
+        'tamil': 'ta-IN',
+        'telugu': 'te-IN',
+        'kannada': 'kn-IN',
+        'malayalam': 'ml-IN',
+        'italian': 'it-IT',
+        'portuguese': 'pt-PT',
+        'russian': 'ru-RU',
+    };
+
+    function detectVoiceTranslationCommand(text) {
+        if (!text) return null;
+        const cleaned = text.trim().replace(/[.!?,;:]+$/, '');
+        for (const pattern of VOICE_TRANSLATE_PATTERNS) {
+            const match = cleaned.match(pattern);
+            if (match && match[1]) {
+                const raw = match[1].trim().toLowerCase();
+                return CANONICAL_LANG_NAMES[raw] || (raw.charAt(0).toUpperCase() + raw.slice(1));
+            }
+        }
+        return null;
+    }
+
+    function showTranslationOffer() {
+        if (translationOfferBox) {
+            translationOfferBox.style.display = 'flex';
         }
     }
 
+    function hideTranslationOffer() {
+        if (translationOfferBox) {
+            translationOfferBox.style.display = 'none';
+        }
+    }
 
-    // =========================================================================
-    // EXECUTE CONFIRMED DANGEROUS COMMAND
-    // =========================================================================
-    async function executeConfirmedCommand(token, contentEl) {
-        // Disable buttons
-        const confirmBtn = contentEl.querySelector('.inline-confirm-btn');
-        const cancelBtn = contentEl.querySelector('.inline-cancel-btn');
-        if (confirmBtn) confirmBtn.disabled = true;
-        if (cancelBtn) cancelBtn.disabled = true;
+    function showTranslationSelector() {
+        if (translationSelectorBox) {
+            translationSelectorBox.style.display = 'flex';
+            hideTranslationError();
+            if (lastSourceLanguage && lastSourceLanguage.toLowerCase() === 'hi') {
+                targetLanguageSelect.value = 'English';
+            }
+            translationSelectorBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }
 
-        setStatus('processing', 'Executing…');
+    function hideTranslationSelector() {
+        if (translationSelectorBox) {
+            translationSelectorBox.style.display = 'none';
+            hideTranslationError();
+        }
+    }
+
+    function showTranslationResult() {
+        if (translationDisplayCard) {
+            translationDisplayCard.style.display = 'flex';
+        }
+    }
+
+    function hideTranslationResult() {
+        if (translationDisplayCard) {
+            translationDisplayCard.style.display = 'none';
+        }
+        stopSpeechSynthesis();
+    }
+
+    function showTranslationError(msg) {
+        if (translationErrorNotice && translationErrorMsg) {
+            translationErrorMsg.textContent = msg || "Translation couldn't be completed.";
+            translationErrorNotice.style.display = 'flex';
+        }
+        showToast(msg || "Translation couldn't be completed.");
+    }
+
+    function hideTranslationError() {
+        if (translationErrorNotice) {
+            translationErrorNotice.style.display = 'none';
+        }
+    }
+
+    function setTranslationControlsBusy(busy) {
+        if (btnTriggerTranslate) {
+            btnTriggerTranslate.disabled = busy;
+            triggerTranslateText.textContent = busy ? 'Translating...' : 'Translate';
+        }
+    }
+
+    async function executeTranslation(sourceText, targetLang, sourceLang = null) {
+        if (!sourceText || !sourceText.trim()) {
+            showError('Please record something first.', 'There is no transcription available to translate.');
+            showToast('Please record something first.');
+            return;
+        }
+
+        lastAttemptedTargetLanguage = targetLang;
+        hideTranslationError();
+        showStatus(`Translating to ${targetLang}...`);
+        setTranslationControlsBusy(true);
 
         try {
-            const response = await fetch('/execute', {
+            const response = await fetch('/translate', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                },
                 body: JSON.stringify({
-                    confirmation_token: token,
-                    confirmed: true,
+                    text: sourceText.trim(),
+                    target_language: targetLang,
+                    source_language: sourceLang || lastSourceLanguage,
                 }),
             });
 
             const data = await response.json();
+            hideStatus();
+            setTranslationControlsBusy(false);
 
-            // Update the card in-place
-            const card = contentEl.querySelector('.command-card.warning');
-            if (card && data.command) {
-                const cmd = data.command;
-                card.className = 'command-card ' + (cmd.executed ? 'executed' : 'error');
-                card.innerHTML = `
-                    <div class="command-label">${cmd.executed ? '✅ Command Executed' : '❌ Execution Failed'}</div>
-                    <div class="command-intent">${escapeHtml(cmd.intent || '')}</div>
-                    ${cmd.action ? `<div class="command-action">${escapeHtml(String(cmd.action))}</div>` : ''}
-                    <div class="command-output">${escapeHtml(cmd.output || '')}</div>
-                `;
-            } else if (data.error) {
-                addErrorMessage(data.error);
+            if (response.ok && data.status === 'success') {
+                currentTranslationData = {
+                    sourceText: data.source_text,
+                    translatedText: data.translated_text,
+                    targetLanguage: data.target_language || targetLang,
+                    sourceLanguage: data.source_language || (sourceLang ? sourceLang.toUpperCase() : 'Original'),
+                };
+
+                renderTranslationResult(currentTranslationData);
+                hideTranslationOffer();
+                hideTranslationSelector();
+                showToast(`Translated to ${currentTranslationData.targetLanguage}`);
+
+                translationDisplayCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } else {
+                const errorText = data.error || "Translation couldn't be completed.";
+                showTranslationError(errorText);
             }
         } catch (err) {
-            addErrorMessage('Failed to execute command: ' + err.message);
+            console.error('Translation network error:', err);
+            hideStatus();
+            setTranslationControlsBusy(false);
+            showTranslationError("Translation couldn't be completed.");
         }
-
-        setStatus('', 'Ready');
     }
 
+    function renderTranslationResult(data) {
+        const srcDisplay = data.sourceLanguage ? data.sourceLanguage.toUpperCase() : 'ORIGINAL';
+        translationRouteText.textContent = `${srcDisplay} → ${data.targetLanguage}`;
 
-    // =========================================================================
-    // MODAL (kept for potential future use, but inline confirm is primary)
-    // =========================================================================
-    confirmCancel.addEventListener('click', () => {
-        confirmModal.style.display = 'none';
-        pendingToken = null;
-    });
+        // Never replace the original transcription; always show both
+        transOriginalContent.textContent = data.sourceText;
+        transTargetTitle.textContent = `Translation — ${data.targetLanguage}`;
+        transTargetContent.textContent = data.translatedText;
 
-    confirmExecute.addEventListener('click', async () => {
-        confirmModal.style.display = 'none';
-        if (pendingToken) {
-            // Using modal flow (backup)
-            addLoadingMessage();
-            setStatus('processing', 'Executing…');
-            try {
-                const response = await fetch('/execute', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        confirmation_token: pendingToken,
-                        confirmed: true,
-                    }),
-                });
-                const data = await response.json();
-                removeLoadingMessage();
-                if (data.command) {
-                    const cmd = data.command;
-                    const cardClass = cmd.executed ? 'executed' : 'error';
-                    addAssistantMessage(`
-                        <div class="command-card ${cardClass}">
-                            <div class="command-label">${cmd.executed ? '✅ Command Executed' : '❌ Execution Failed'}</div>
-                            <div class="command-intent">${escapeHtml(cmd.intent || '')}</div>
-                            ${cmd.action ? `<div class="command-action">${escapeHtml(String(cmd.action))}</div>` : ''}
-                            <div class="command-output">${escapeHtml(cmd.output || '')}</div>
-                        </div>
-                    `);
-                }
-            } catch (err) {
-                removeLoadingMessage();
-                addErrorMessage('Failed to execute command: ' + err.message);
-            }
-            setStatus('', 'Ready');
-            pendingToken = null;
-        }
-    });
+        showTranslationResult();
+    }
 
+    function copyTranslation() {
+        if (!currentTranslationData || !currentTranslationData.translatedText) return;
+        const text = currentTranslationData.translatedText;
 
-    // =========================================================================
-    // HINT CHIPS — Quick command demos
-    // =========================================================================
-    document.querySelectorAll('.hint-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-            // For hint chips, we just display what would happen.
-            // In a real scenario the user would speak these.
-            const hint = chip.dataset.hint;
-            addAssistantMessage(`
-                <p style="color: var(--text-secondary); font-size: 0.875rem;">
-                    💡 Try saying: <strong>"${escapeHtml(hint)}"</strong>
-                </p>
-                <p style="color: var(--text-muted); font-size: 0.8rem; margin-top: 4px;">
-                    Use the microphone to speak this command.
-                </p>
-            `);
+        navigator.clipboard.writeText(text).then(() => {
+            copyTranslationBtnText.textContent = 'Copied';
+            showToast('Translation copied to clipboard.');
+            setTimeout(() => {
+                copyTranslationBtnText.textContent = 'Copy';
+            }, 1800);
+        }).catch(() => {
+            showToast('Failed to copy translation.');
         });
-    });
+    }
+
+    function downloadTranslation() {
+        if (!currentTranslationData) return;
+        const now = new Date();
+        const yyyy = now.getFullYear();
+        const mm = String(now.getMonth() + 1).padStart(2, '0');
+        const dd = String(now.getDate()).padStart(2, '0');
+        const hh = String(now.getHours()).padStart(2, '0');
+        const min = String(now.getMinutes()).padStart(2, '0');
+        const ss = String(now.getSeconds()).padStart(2, '0');
+
+        const content = [
+            `============================================================`,
+            `Speech Recognition Studio — Translation Record`,
+            `Date: ${now.toLocaleString()}`,
+            `Route: ${currentTranslationData.sourceLanguage} → ${currentTranslationData.targetLanguage}`,
+            `============================================================\n`,
+            `### Original (${currentTranslationData.sourceLanguage})`,
+            currentTranslationData.sourceText,
+            `\n### Translation — ${currentTranslationData.targetLanguage}`,
+            currentTranslationData.translatedText,
+            `\n============================================================`
+        ].join('\n');
+
+        const filename = `translation_${currentTranslationData.targetLanguage.toLowerCase()}_${yyyy}${mm}${dd}_${hh}${min}${ss}.txt`;
+
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        showToast(`Downloaded: ${filename}`);
+    }
+
+    function listenTranslation() {
+        if (!currentTranslationData || !currentTranslationData.translatedText) return;
+
+        if (!('speechSynthesis' in window)) {
+            showToast('Text-to-speech is not supported by your browser.');
+            return;
+        }
+
+        if (isSpeaking) {
+            stopSpeechSynthesis();
+            return;
+        }
+
+        stopSpeechSynthesis();
+
+        const utterance = new SpeechSynthesisUtterance(currentTranslationData.translatedText);
+        const targetLower = currentTranslationData.targetLanguage.toLowerCase();
+        const langCode = TTS_LANG_MAP[targetLower] || 'en-US';
+        utterance.lang = langCode;
+
+        utterance.onstart = () => {
+            isSpeaking = true;
+            listenTranslationBtnText.textContent = 'Stop';
+        };
+
+        utterance.onend = () => {
+            isSpeaking = false;
+            listenTranslationBtnText.textContent = 'Listen';
+        };
+
+        utterance.onerror = () => {
+            isSpeaking = false;
+            listenTranslationBtnText.textContent = 'Listen';
+        };
+
+        window.speechSynthesis.speak(utterance);
+    }
+
+    function stopSpeechSynthesis() {
+        if ('speechSynthesis' in window && window.speechSynthesis.speaking) {
+            window.speechSynthesis.cancel();
+        }
+        isSpeaking = false;
+        if (listenTranslationBtnText) {
+            listenTranslationBtnText.textContent = 'Listen';
+        }
+    }
+
+    // =========================================================================
+    // 11. EVENT LISTENERS
+    // =========================================================================
+    function setupEventListeners() {
+        // Navigation Buttons
+        btnScrollHistory.addEventListener('click', () => {
+            historySection.scrollIntoView({ behavior: 'smooth' });
+        });
+
+        btnResetWorkspace.addEventListener('click', resetWorkspace);
+        btnCloseError.addEventListener('click', hideError);
+
+        // Recording Controls
+        btnStartRecord.addEventListener('click', startRecording);
+        btnStopRecord.addEventListener('click', stopRecording);
+        btnCancelRecord.addEventListener('click', cancelRecording);
+
+        // Upload Dropzone
+        dropzone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        dropzone.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInput.click();
+            }
+        });
+
+        dropzone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropzone.classList.add('drag-active');
+        });
+
+        dropzone.addEventListener('dragleave', () => {
+            dropzone.classList.remove('drag-active');
+        });
+
+        dropzone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropzone.classList.remove('drag-active');
+            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleFileSelection(e.dataTransfer.files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files.length > 0) {
+                handleFileSelection(e.target.files[0]);
+            }
+        });
+
+        btnRemoveFile.addEventListener('click', removeSelectedFile);
+
+        btnTranscribeFile.addEventListener('click', () => {
+            if (selectedUploadFile) {
+                sendAudioToTranscribe(selectedUploadFile, selectedUploadFile.name);
+            }
+        });
+
+        // Transcript Action Buttons
+        btnCopyTranscript.addEventListener('click', copyTranscript);
+        btnDownloadTranscript.addEventListener('click', downloadTranscript);
+        btnClearTranscript.addEventListener('click', clearTranscript);
+
+        // Translation Offer actions
+        btnOfferTranslate.addEventListener('click', () => {
+            hideTranslationOffer();
+            showTranslationSelector();
+        });
+
+        btnOfferSkip.addEventListener('click', () => {
+            hideTranslationOffer();
+        });
+
+        // Translation Selector actions
+        btnCloseSelector.addEventListener('click', () => {
+            hideTranslationSelector();
+        });
+
+        targetLanguageSelect.addEventListener('change', () => {
+            if (targetLanguageSelect.value === '__other__') {
+                otherLanguageWrapper.style.display = 'block';
+                otherLanguageInput.focus();
+            } else {
+                otherLanguageWrapper.style.display = 'none';
+            }
+        });
+
+        btnTriggerTranslate.addEventListener('click', () => {
+            let targetLang = targetLanguageSelect.value;
+            if (targetLang === '__other__') {
+                targetLang = otherLanguageInput.value.trim();
+                if (!targetLang) {
+                    showTranslationError('Please enter a target language.');
+                    return;
+                }
+            }
+            if (!targetLang) {
+                showTranslationError('Please choose a target language.');
+                return;
+            }
+            const sourceText = (transcriptText.value || lastTranscription || '').trim();
+            executeTranslation(sourceText, targetLang, lastSourceLanguage);
+        });
+
+        otherLanguageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                btnTriggerTranslate.click();
+            }
+        });
+
+        btnRetryTranslate.addEventListener('click', () => {
+            const sourceText = (transcriptText.value || lastTranscription || '').trim();
+            executeTranslation(sourceText, lastAttemptedTargetLanguage, lastSourceLanguage);
+        });
+
+        // Translation Display Actions
+        btnCopyTranslation.addEventListener('click', copyTranslation);
+        btnDownloadTranslation.addEventListener('click', downloadTranslation);
+        btnListenTranslation.addEventListener('click', listenTranslation);
+
+        btnRetranslate.addEventListener('click', () => {
+            showTranslationSelector();
+        });
+
+        // History Actions
+        btnClearHistory.addEventListener('click', clearAllHistory);
+    }
+
+    // Initialize application
+    init();
 });

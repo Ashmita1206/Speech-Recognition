@@ -4,145 +4,430 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice Assistant — AI-Powered Linux Assistant</title>
+    <title>Speech Recognition Studio — Speech-to-Text</title>
     <meta name="description"
-        content="Linux-compatible AI voice assistant powered by Faster-Whisper. Speak commands to control your system.">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
-        rel="stylesheet">
+        content="Speech Recognition Studio — A formal, professional speech-to-text platform powered by Faster-Whisper.">
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 
 <body>
-    <!-- ============================================================ -->
-    <!-- BACKGROUND AMBIENT ORBS                                       -->
-    <!-- ============================================================ -->
-    <div class="ambient-bg">
-        <div class="orb orb-1"></div>
-        <div class="orb orb-2"></div>
-        <div class="orb orb-3"></div>
-    </div>
 
-    <!-- ============================================================ -->
-    <!-- MAIN CONTAINER                                                -->
-    <!-- ============================================================ -->
-    <div class="app-container">
-        <!-- Header -->
-        <header class="app-header" id="app-header">
-            <div class="header-glow"></div>
-            <div class="logo-section">
-                <div class="logo-icon">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z" />
-                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                        <line x1="12" y1="19" x2="12" y2="23" />
-                        <line x1="8" y1="23" x2="16" y2="23" />
-                    </svg>
-                </div>
-                <div>
-                    <h1>Voice Assistant</h1>
-                    <p class="tagline">Faster-Whisper · Linux · AI-Powered</p>
-                </div>
-            </div>
-            <div class="status-indicator" id="status-indicator">
-                <span class="status-dot"></span>
-                <span class="status-text" id="status-text">Ready</span>
-            </div>
-        </header>
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-        <!-- Chat / Conversation Area -->
-        <main class="chat-area" id="chat-area">
-            <!-- Welcome message -->
-            <div class="message assistant-message welcome-msg" id="welcome-message">
-                <div class="message-avatar">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z" />
-                        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                        <line x1="12" y1="19" x2="12" y2="23" />
-                        <line x1="8" y1="23" x2="16" y2="23" />
-                    </svg>
-                </div>
-                <div class="message-content">
-                    <p class="greeting">Hello! I'm your AI voice assistant.</p>
-                    <p class="greeting-sub">Tap the microphone or upload audio to get started. I can transcribe your
-                        speech and execute Linux system commands.</p>
-                    <div class="command-hints">
-                        <span class="hint-chip" data-hint="open browser">🌐 "Open browser"</span>
-                        <span class="hint-chip" data-hint="list files">📁 "List files"</span>
-                        <span class="hint-chip" data-hint="what time is it">🕐 "What time is it?"</span>
-                        <span class="hint-chip" data-hint="check disk space">💾 "Disk space"</span>
-                        <span class="hint-chip" data-hint="open terminal">💻 "Open terminal"</span>
-                        <span class="hint-chip" data-hint="system info">🖥️ "System info"</span>
-                    </div>
-                </div>
-            </div>
-        </main>
-
-        <!-- ============================================================ -->
-        <!-- INPUT CONTROLS (Bottom Bar)                                   -->
-        <!-- ============================================================ -->
-        <footer class="input-bar" id="input-bar">
-            <!-- Waveform visualizer (hidden until recording) -->
-            <div class="waveform-container" id="waveform-container" style="display: none;">
-                <canvas id="waveform-canvas" width="300" height="50"></canvas>
-            </div>
-
-            <div class="input-controls">
-                <!-- Upload Button -->
-                <label for="file-input" class="icon-btn upload-btn" id="upload-label" title="Upload audio file">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                        <polyline points="17 8 12 3 7 8" />
-                        <line x1="12" y1="3" x2="12" y2="15" />
-                    </svg>
-                </label>
-                <input type="file" id="file-input" accept=".wav,.mp3,.webm,.ogg,.flac,.m4a"
-                    style="display: none;">
-
-                <!-- Microphone Button -->
-                <button class="mic-btn" id="mic-btn" title="Hold to record">
-                    <div class="mic-pulse"></div>
-                    <div class="mic-icon">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z" />
-                            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                            <line x1="12" y1="19" x2="12" y2="23" />
-                            <line x1="8" y1="23" x2="16" y2="23" />
-                        </svg>
-                    </div>
-                </button>
-
-                <!-- Recording timer -->
-                <span class="recording-timer" id="recording-timer" style="display: none;">00:00</span>
-            </div>
-
-            <p class="input-hint" id="input-hint">Tap the microphone to start recording</p>
-        </footer>
-    </div>
-
-    <!-- ============================================================ -->
-    <!-- CONFIRMATION MODAL                                            -->
-    <!-- ============================================================ -->
-    <div class="modal-overlay" id="confirm-modal" style="display: none;">
-        <div class="modal-card">
-            <div class="modal-icon warning">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path
-                        d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
-                    <line x1="12" y1="9" x2="12" y2="13" />
-                    <line x1="12" y1="17" x2="12.01" y2="17" />
+    <!-- Top Navigation Bar -->
+    <header class="studio-header">
+        <div class="header-inner">
+            <div class="brand">
+                <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    aria-hidden="true">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                    <line x1="12" y1="19" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
                 </svg>
+                <div class="brand-text">
+                    <span class="brand-title">SPEECH RECOGNITION STUDIO</span>
+                </div>
             </div>
-            <h3 class="modal-title">Confirmation Required</h3>
-            <p class="modal-message" id="confirm-message">This action requires confirmation.</p>
-            <div class="modal-actions">
-                <button class="modal-btn cancel-btn" id="confirm-cancel">Cancel</button>
-                <button class="modal-btn confirm-btn" id="confirm-execute">Execute</button>
-            </div>
+            <nav class="header-nav">
+                <button type="button" class="nav-btn" id="btn-scroll-history">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" />
+                        <polyline points="12 6 12 12 16 14" />
+                    </svg>
+                    <span>History</span>
+                </button>
+                <button type="button" class="nav-btn" id="btn-reset-workspace">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                        <path d="M3 3v5h5" />
+                    </svg>
+                    <span>Reset</span>
+                </button>
+            </nav>
         </div>
-    </div>
+    </header>
 
+    <!-- Main Container -->
+    <main class="studio-main">
+        <div class="content-wrapper">
+
+            <!-- Hero Section -->
+            <section class="hero-section">
+                <h1 class="hero-title">Turn Speech Into Text</h1>
+                <p class="hero-subtitle">Record your voice or upload an audio file to generate an accurate, readable
+                    transcript.</p>
+            </section>
+
+            <!-- Status Banner (Processing / Loading / Error) -->
+            <div id="status-banner" class="status-banner" style="display: none;" role="status">
+                <div class="status-spinner" id="status-spinner"></div>
+                <span id="status-message" class="status-message">Processing audio...</span>
+            </div>
+
+            <!-- Error Notice -->
+            <div id="error-notice" class="error-notice" style="display: none;" role="alert">
+                <svg class="error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                    aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <div class="error-body">
+                    <strong id="error-title">An error occurred</strong>
+                    <p id="error-desc">Please try again.</p>
+                </div>
+                <button type="button" class="error-close" id="btn-close-error" aria-label="Dismiss error">×</button>
+            </div>
+
+            <!-- Primary Workspace Grid -->
+            <div class="input-grid">
+
+                <!-- 1. Microphone Recording Card -->
+                <section class="studio-card record-card" aria-labelledby="record-card-heading">
+                    <div class="card-header">
+                        <h2 id="record-card-heading" class="card-title">Record Audio</h2>
+                        <p class="card-subtitle">Capture speech directly from your microphone.</p>
+                    </div>
+
+                    <!-- Ready State -->
+                    <div id="record-ready-view" class="record-view">
+                        <div class="mic-illustration" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3Z" />
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                                <line x1="12" y1="19" x2="12" y2="23" />
+                                <line x1="8" y1="23" x2="16" y2="23" />
+                            </svg>
+                        </div>
+                        <button type="button" class="btn btn-primary btn-record" id="btn-start-record">
+                            <span class="btn-dot"></span>
+                            <span>Start Recording</span>
+                        </button>
+                    </div>
+
+                    <!-- Active Recording State -->
+                    <div id="record-active-view" class="record-view" style="display: none;">
+                        <div class="recording-badge">
+                            <span class="pulse-indicator" aria-hidden="true"></span>
+                            <span>Recording in progress</span>
+                        </div>
+                        <div class="recording-timer" id="recording-timer" aria-live="off">00:00</div>
+
+                        <!-- Real-time Animated Waveform Canvas -->
+                        <div class="waveform-box">
+                            <canvas id="waveform-canvas" width="360" height="48" aria-label="Audio waveform"></canvas>
+                        </div>
+
+                        <div class="record-actions">
+                            <button type="button" class="btn btn-secondary" id="btn-cancel-record">Cancel</button>
+                            <button type="button" class="btn btn-danger" id="btn-stop-record">
+                                <span class="stop-icon" aria-hidden="true"></span>
+                                <span>Stop Recording</span>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Divider -->
+                <div class="section-divider" aria-hidden="true">
+                    <span>or</span>
+                </div>
+
+                <!-- 2. Audio File Upload Card -->
+                <section class="studio-card upload-card" aria-labelledby="upload-card-heading">
+                    <div class="card-header">
+                        <h2 id="upload-card-heading" class="card-title">Upload Audio File</h2>
+                        <p class="card-subtitle">Select or drop a pre-recorded audio file.</p>
+                    </div>
+
+                    <!-- Dropzone -->
+                    <div class="dropzone" id="dropzone" tabindex="0" role="button"
+                        aria-label="Drop audio file here or press enter to choose file">
+                        <svg class="dropzone-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="1.6" aria-hidden="true">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="17 8 12 3 7 8" />
+                            <line x1="12" y1="3" x2="12" y2="15" />
+                        </svg>
+                        <p class="dropzone-main">Drop your audio file here, or <span class="browse-link">browse</span>
+                        </p>
+                        <p class="dropzone-sub">Supported formats: WAV, MP3, M4A, WebM, FLAC, OGG</p>
+                        <input type="file" id="file-input" accept=".wav,.mp3,.m4a,.webm,.flac,.ogg"
+                            style="display: none;">
+                    </div>
+
+                    <!-- Selected File Preview -->
+                    <div id="file-preview-card" class="file-preview-card" style="display: none;">
+                        <div class="file-meta">
+                            <svg class="file-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                stroke-width="1.8" aria-hidden="true">
+                                <path d="M9 18V5l12-2v13" />
+                                <circle cx="6" cy="18" r="3" />
+                                <circle cx="18" cy="16" r="3" />
+                            </svg>
+                            <div class="file-details">
+                                <strong id="preview-filename" class="preview-filename">recording.wav</strong>
+                                <span id="preview-filesize" class="preview-filesize">2.4 MB</span>
+                            </div>
+                        </div>
+                        <div class="file-actions">
+                            <button type="button" class="btn btn-secondary btn-sm" id="btn-remove-file">Remove</button>
+                            <button type="button" class="btn btn-primary" id="btn-transcribe-file">
+                                <span>Transcribe Audio</span>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+
+            </div>
+
+            <!-- 3. Transcript Display Card -->
+            <section class="studio-card transcript-card" id="transcript-section" aria-labelledby="transcript-heading">
+                <div class="transcript-header">
+                    <div class="transcript-title-wrap">
+                        <h2 id="transcript-heading" class="card-title">Transcript</h2>
+                        <span class="transcript-status-badge" id="transcript-status-badge">Ready</span>
+                    </div>
+                    <div class="transcript-actions">
+                        <button type="button" class="btn btn-action" id="btn-copy-transcript"
+                            title="Copy transcript to clipboard" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                aria-hidden="true">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                            <span id="copy-btn-text">Copy</span>
+                        </button>
+                        <button type="button" class="btn btn-action" id="btn-download-transcript"
+                            title="Download transcript as text file" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                aria-hidden="true">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                <polyline points="7 10 12 15 17 10" />
+                                <line x1="12" y1="15" x2="12" y2="3" />
+                            </svg>
+                            <span>Download (.txt)</span>
+                        </button>
+                        <button type="button" class="btn btn-action btn-clear" id="btn-clear-transcript"
+                            title="Clear current transcript" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                aria-hidden="true">
+                                <polyline points="3 6 5 6 21 6" />
+                                <path
+                                    d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            </svg>
+                            <span>Clear</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Transcript Content Body -->
+                <div class="transcript-body">
+                    <textarea id="transcript-text" class="transcript-text"
+                        placeholder="Your transcribed text will appear here after recording or uploading audio."
+                        aria-label="Transcribed speech content"></textarea>
+                </div>
+
+                <!-- Transcript Metadata Bar -->
+                <div class="transcript-meta-bar" id="transcript-meta-bar">
+                    <div class="meta-item">
+                        <span class="meta-label">Detected Language:</span>
+                        <span class="meta-val" id="meta-language">—</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Audio Duration:</span>
+                        <span class="meta-val" id="meta-duration">—</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Processing Time:</span>
+                        <span class="meta-val" id="meta-processing">—</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Engine:</span>
+                        <span class="meta-val">Faster-Whisper (int8)</span>
+                    </div>
+                </div>
+
+                <!-- ========================================================= -->
+                <!-- 3.1 TRANSLATION SUITE                                      -->
+                <!-- ========================================================= -->
+                <div class="translation-wrapper" id="translation-wrapper">
+
+                    <!-- Step 3: Offer Translation Prompt -->
+                    <div class="translation-prompt-box" id="translation-offer-box" style="display: none;">
+                        <div class="prompt-info">
+                            <div class="prompt-icon-bubble" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+                                    <path d="m5 8 6 6" />
+                                    <path d="m4 14 6-6 2-3" />
+                                    <path d="M2 5h12" />
+                                    <path d="M7 2h1" />
+                                    <path d="m22 22-5-10-5 10" />
+                                    <path d="M14 18h6" />
+                                </svg>
+                            </div>
+                            <div class="prompt-text-group">
+                                <span class="prompt-question">Would you like me to translate this?</span>
+                                <span class="prompt-tip">Select a language or say <em>“Translate this into Hindi”</em></span>
+                            </div>
+                        </div>
+                        <div class="prompt-action-group">
+                            <button type="button" class="btn btn-primary btn-sm" id="btn-offer-translate">Translate</button>
+                            <button type="button" class="btn btn-secondary btn-sm" id="btn-offer-skip">Skip</button>
+                        </div>
+                    </div>
+
+                    <!-- Step 3.2: Language Selector / Dropdown -->
+                    <div class="translation-selector-card" id="translation-selector-box" style="display: none;">
+                        <div class="selector-card-header">
+                            <span class="selector-card-title">Which language would you like to translate it into?</span>
+                            <button type="button" class="btn-close-selector" id="btn-close-selector" aria-label="Close language selector" title="Cancel">×</button>
+                        </div>
+                        <div class="selector-card-body">
+                            <div class="selector-inline-form">
+                                <span class="selector-field-label">Translate to</span>
+                                <div class="select-container">
+                                    <select id="target-language-select" class="target-language-select" aria-label="Select target language">
+                                        <option value="English">English</option>
+                                        <option value="Hindi" selected>Hindi</option>
+                                        <option value="Spanish">Spanish</option>
+                                        <option value="French">French</option>
+                                        <option value="German">German</option>
+                                        <option value="Japanese">Japanese</option>
+                                        <option value="Korean">Korean</option>
+                                        <option value="Chinese">Chinese</option>
+                                        <option value="Arabic">Arabic</option>
+                                        <option value="Punjabi">Punjabi</option>
+                                        <option value="Bengali">Bengali</option>
+                                        <option value="Marathi">Marathi</option>
+                                        <option value="Gujarati">Gujarati</option>
+                                        <option value="Tamil">Tamil</option>
+                                        <option value="Telugu">Telugu</option>
+                                        <option value="Kannada">Kannada</option>
+                                        <option value="Malayalam">Malayalam</option>
+                                        <option value="__other__">Other language</option>
+                                    </select>
+                                </div>
+                                <div id="other-language-wrapper" class="other-language-wrapper" style="display: none;">
+                                    <input type="text" id="other-language-input" class="other-language-input"
+                                        placeholder="Type language (e.g. Italian, Russian)..."
+                                        aria-label="Custom language name" />
+                                </div>
+                                <button type="button" class="btn btn-primary btn-sm" id="btn-trigger-translate">
+                                    <span id="trigger-translate-text">Translate</span>
+                                </button>
+                            </div>
+
+                            <!-- Inline Translation Error Notice -->
+                            <div id="translation-error-notice" class="translation-error-notice" style="display: none;">
+                                <svg class="error-inline-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="10" />
+                                    <line x1="12" y1="8" x2="12" y2="12" />
+                                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                                </svg>
+                                <span id="translation-error-msg">Translation couldn't be completed.</span>
+                                <button type="button" class="btn btn-secondary btn-sm" id="btn-retry-translate">Try again</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3.3: Dual Display (Original + Translation) -->
+                    <div class="translation-display-card" id="translation-display-card" style="display: none;">
+                        <div class="translation-display-header">
+                            <div class="translation-route-badge">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path d="m5 8 6 6" />
+                                    <path d="m4 14 6-6 2-3" />
+                                    <path d="M2 5h12" />
+                                    <path d="M7 2h1" />
+                                    <path d="m22 22-5-10-5 10" />
+                                    <path d="M14 18h6" />
+                                </svg>
+                                <span id="translation-route-text">English → Hindi</span>
+                            </div>
+                            <div class="translation-display-actions">
+                                <button type="button" class="btn btn-action btn-sm" id="btn-copy-translation" title="Copy translated text">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                    </svg>
+                                    <span id="copy-translation-btn-text">Copy</span>
+                                </button>
+                                <button type="button" class="btn btn-action btn-sm" id="btn-download-translation" title="Download translation">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                        <polyline points="7 10 12 15 17 10" />
+                                        <line x1="12" y1="15" x2="12" y2="3" />
+                                    </svg>
+                                    <span>Download (.txt)</span>
+                                </button>
+                                <button type="button" class="btn btn-action btn-sm" id="btn-listen-translation" title="Listen to translation">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07" />
+                                    </svg>
+                                    <span id="listen-translation-btn-text">Listen</span>
+                                </button>
+                                <button type="button" class="btn btn-action btn-sm" id="btn-retranslate" title="Translate into another language">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                                        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                                        <path d="M21 3v5h-5" />
+                                        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                                        <path d="M3 21v-5h5" />
+                                    </svg>
+                                    <span>Change Language</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Side-by-side or stacked clean cards -->
+                        <div class="dual-panes-grid">
+                            <div class="trans-pane original-pane">
+                                <div class="pane-tag">Original</div>
+                                <div class="pane-content" id="trans-original-content"></div>
+                            </div>
+                            <div class="trans-pane target-pane">
+                                <div class="pane-tag" id="trans-target-title">Translation — Hindi</div>
+                                <div class="pane-content" id="trans-target-content"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- 4. Recent Transcriptions History Section -->
+            <section class="studio-card history-card" id="history-section" aria-labelledby="history-heading">
+                <div class="card-header history-header">
+                    <div>
+                        <h2 id="history-heading" class="card-title">Recent Transcriptions</h2>
+                        <p class="card-subtitle">Previous transcripts saved in this session.</p>
+                    </div>
+                    <button type="button" class="btn btn-text btn-sm" id="btn-clear-history">Clear History</button>
+                </div>
+
+                <div class="history-list" id="history-list">
+                    <!-- Populated dynamically via JavaScript -->
+                    <div class="history-empty" id="history-empty-placeholder">
+                        <p>No previous transcriptions yet. Record or upload an audio file to begin.</p>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="studio-footer">
+        <div class="footer-inner">
+            <p><strong>Speech Recognition Studio</strong> · Faster-Whisper Speech-to-Text Engine · Local & Private
+                Processing</p>
+        </div>
+    </footer>
+
+    <!-- Core JavaScript -->
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 
