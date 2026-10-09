@@ -19,7 +19,13 @@ from utils.audio_processing import (
     load_audio,
     generate_spectrogram,
 )
+
+from utils.predict import transcribe_audio
+from utils.commands import confirm_and_execute
+from utils.translator import translate_text, get_supported_languages
+
 from utils.predict import predict_audio
+
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -91,6 +97,29 @@ def predict():
         wav_filename = f"{unique_id}.wav"
         wav_path = os.path.join(UPLOAD_FOLDER, wav_filename)
 
+        convert_to_wav(raw_path, wav_path)
+
+        # Optional language preference (e.g., 'hi', 'en', 'auto')
+        language_pref = (
+            request.form.get("language")
+            or request.form.get("language_preference")
+            or request.args.get("language")
+        )
+
+        # ----- Transcribe & detect commands -----
+        result = transcribe_audio(wav_path, language_preference=language_pref)
+
+        # ----- Clean up temp files -----
+        try:
+            if os.path.exists(raw_path) and raw_path != wav_path:
+                os.remove(raw_path)
+            if os.path.exists(wav_path):
+                os.remove(wav_path)
+        except OSError:
+            pass  # Non-critical cleanup
+
+
+
         if original_ext != '.wav':
             convert_to_wav(raw_path, wav_path)
         else:
@@ -129,6 +158,77 @@ def predict():
             "success": False,
             "error": f"Server error: {str(e)}",
         }), 500
+
+
+
+# --- Legacy alias ---
+@app.route('/predict', methods=['POST'])
+def predict():
+    """Backward-compatible alias for /transcribe."""
+    return transcribe()
+
+
+@app.route('/translate', methods=['POST'])
+def translate():
+    """
+    Lightweight translation endpoint.
+    Expects JSON:
+        {
+          "text": "Good morning everyone",
+          "target_language": "Hindi",
+          "source_language": "en" (optional)
+        }
+    Returns JSON:
+        {
+          "status": "success",
+          "source_text": "Good morning everyone",
+          "translated_text": "सुप्रभात सभी को",
+          "target_language": "Hindi",
+          "source_language": "en"
+        }
+    """
+    try:
+        data = request.get_json(silent=True)
+        if not data:
+            return jsonify({
+                "status": "error",
+                "error": "Invalid request body",
+            }), 400
+
+        text = data.get("text", "").strip()
+        target_language = data.get("target_language", "").strip()
+        source_language = data.get("source_language", None)
+
+        if not text:
+            return jsonify({
+                "status": "error",
+                "error": "No text provided to translate.",
+            }), 400
+
+        if not target_language:
+            return jsonify({
+                "status": "error",
+                "error": "No target language specified.",
+            }), 400
+
+        result = translate_text(text, target_language, source_language)
+        status_code = 200 if result.get("status") == "success" else 400
+        return jsonify(result), status_code
+
+    except Exception:
+        return jsonify({
+            "status": "error",
+            "error": "Translation couldn't be completed.",
+        }), 500
+
+
+@app.route('/languages', methods=['GET'])
+def languages():
+    """Return available primary translation languages."""
+    return jsonify({
+        "status": "success",
+        "languages": list(get_supported_languages().keys()),
+    })
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,8 @@
+
+# AI Voice Assistant — Linux (Faster-Whisper)
+
 # 🎤 Speech Recognition System (Yes/No Classifier + Whisper)
+
 
 <div align="center">
 
@@ -27,6 +31,68 @@ It allows users to **record voice, transcribe it, and classify it in real-time**
 
 ## 🎯 Key Features
 
+
+- Real-time voice recording (browser microphone)
+- Audio file upload (WAV, MP3, WebM, OGG, FLAC, M4A)
+- Faster-Whisper large-v3 with int8 quantisation (CPU optimised)
+- Multi-Language Translation Suite with 17+ languages & custom language support
+- Hands-free Voice Language Selection (e.g. “Translate this to Hindi”)
+- Dual Translation Display preserving original transcription
+- One-click Copy, Download (.txt), and Listen (Text-to-Speech)
+- One-time model loading at startup
+- Linux system command execution
+- Dangerous command confirmation flow
+- Waveform visualisation during recording
+- Chat-style conversational interface
+
+---
+
+## 🏗️ Project Structure
+
+```
+SPEECH-RECOGNITION/
+│
+├── app.py                   # Flask application (routes)
+├── requirements.txt         # Python dependencies
+├── .gitignore               # Git ignore rules
+├── README.md                # This file
+│
+├── utils/
+│   ├── predict.py           # Faster-Whisper transcription engine
+│   ├── translator.py        # Modular multi-language translation engine
+│   ├── commands.py          # Command detection & execution
+│   ├── audio_processing.py  # Audio conversion utilities
+│   └── dataset.py           # Dataset loader (training)
+│
+├── model/
+│   ├── model.py             # Keras model definition (training)
+│   └── label_map.json       # Label mapping
+│
+├── static/
+│   ├── script.js            # Frontend JavaScript
+│   ├── style.css            # CSS (dark glassmorphism)
+│   ├── uploads/             # Temporary audio uploads
+│   └── spectrograms/        # Generated spectrograms
+│
+├── templates/
+│   └── index.html           # Voice assistant UI
+│
+└── test.py                  # Model training script
+```
+
+---
+
+## ⚙️ Installation & Setup (Linux)
+
+### 1️⃣ Prerequisites
+
+```bash
+sudo apt update
+sudo apt install ffmpeg -y
+```
+
+### 2️⃣ Clone & Setup
+
 - 🎤 Real-time voice recording (browser)
 - 🔄 Audio format conversion (WebM → WAV)
 - 🧠 Whisper-based speech-to-text (offline)
@@ -37,6 +103,7 @@ It allows users to **record voice, transcribe it, and classify it in real-time**
 ---
 
 ## 📸 Screenshots
+
 
 > ⚠️ Add your screenshots here
 
@@ -73,6 +140,21 @@ Git & GitHub
 
 VS Code
 
+**Response:**
+
+```json
+{
+  "transcription": "open the browser",
+  "command": {
+    "intent": "open_browser",
+    "action": "xdg-open https://google.com",
+    "executed": true,
+    "requires_confirmation": false,
+    "output": "Command executed successfully."
+  },
+  "status": "success"
+}
+```
 🏗️ Project Structure
 SPEECH-RECOGNITION/
 │
@@ -115,13 +197,25 @@ pip install -r requirements.txt
 python app.py
 Open in browser:
 
+
 http://127.0.0.1:5000
 🧠 How It Works
 🎤 User records audio
 
 🔄 Audio converted to WAV
 
+
+**Request:**
+
+```json
+{
+  "confirmation_token": "<token from /transcribe>",
+  "confirmed": true
+}
+```
+
 🧠 Whisper transcribes speech
+
 
 🤖 ML model predicts YES/NO
 
@@ -130,7 +224,30 @@ http://127.0.0.1:5000
 📊 Model Details
 Feature Extraction: MFCC
 
+
+## 🧠 Supported Voice Commands
+
+| Voice Input           | Action                      | Dangerous? |
+| --------------------- | --------------------------- | ---------- |
+| "open browser"        | Opens default browser       | No         |
+| "open terminal"       | Opens GNOME terminal        | No         |
+| "list files"          | Lists files (`ls -la`)      | No         |
+| "check disk space"    | Shows disk usage (`df -h`)  | No         |
+| "check memory"        | Shows RAM usage (`free -h`) | No         |
+| "what time is it"     | Returns current date/time   | No         |
+| "take screenshot"     | Takes screenshot            | No         |
+| "open file manager"   | Opens Nautilus              | No         |
+| "system info"         | Shows OS info (`uname -a`)  | No         |
+| "play music"          | Opens media player          | No         |
+| "ip address"          | Shows IP address            | No         |
+| "uptime"              | Shows system uptime         | No         |
+| **"shutdown system"** | Shuts down system           | **⚠️ Yes** |
+| **"reboot"**          | Reboots system              | **⚠️ Yes** |
+| **"delete files"**    | Blocked for safety          | **⚠️ Yes** |
+| **"system update"**   | Runs `apt update`           | **⚠️ Yes** |
+
 Model Type: Neural Network (Keras)
+
 
 Input Shape: (timesteps, features)
 
@@ -141,10 +258,55 @@ Whisper runs locally → no API key needed
 
 First run may take time (model loading)
 
+
+## 🌐 Translation Suite
+
+### API Endpoint: `POST /translate`
+
+Request:
+```json
+{
+  "text": "Good morning everyone, welcome to my presentation.",
+  "target_language": "Hindi"
+}
+```
+
+Response:
+```json
+{
+  "status": "success",
+  "source_text": "Good morning everyone, welcome to my presentation.",
+  "translated_text": "सभी को सुप्रभात, मेरी प्रस्तुति में आपका स्वागत है।",
+  "target_language": "Hindi",
+  "source_language": "en"
+}
+```
+
+### Voice Language Commands
+Users can speak natural translation commands directly after recording:
+- *"Translate this into English."*
+- *"Translate this to Hindi."*
+- *"Translate my last transcription into Hindi."*
+- *"Convert this to Spanish."*
+- *"Give me the Hindi translation."*
+
+The system automatically detects the requested target language and translates the latest transcription while preserving the original.
+
+---
+
+## ❌ Error Handling
+
+| Scenario          | Error Message                           |
+| ----------------- | --------------------------------------- |
+| No audio uploaded | "No audio input detected"               |
+| Whisper fails     | "Transcription failed"                  |
+| No command match  | Returns transcription only (no command) |
+
 Ensure FFmpeg is installed/configured
 
 🔮 Future Improvements
 🎯 Multi-class classification
+
 
 🌍 Multi-language support
 
