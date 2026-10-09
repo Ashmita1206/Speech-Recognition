@@ -18,3 +18,5 @@ static/spectrograms/
 # Faster-Whisper model cache
 .cache/
 huggingface/
+# Local Whisper model cache
+.hf_cache/
