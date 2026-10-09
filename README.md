@@ -1,11 +1,16 @@
+
 # AI Voice Assistant — Linux (Faster-Whisper)
+
+# 🎤 Speech Recognition System (Yes/No Classifier + Whisper)
+
 
 <div align="center">
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue?style=for-the-badge&logo=python)
+![Python](https://img.shields.io/badge/Python-3.10-blue?style=for-the-badge&logo=python)
 ![Flask](https://img.shields.io/badge/Flask-Web_App-black?style=for-the-badge&logo=flask)
-![Whisper](https://img.shields.io/badge/Faster--Whisper-large--v3-green?style=for-the-badge)
-![Linux](https://img.shields.io/badge/Linux-Compatible-orange?style=for-the-badge&logo=linux)
+![TensorFlow](https://img.shields.io/badge/TensorFlow-DeepLearning-orange?style=for-the-badge&logo=tensorflow)
+![Librosa](https://img.shields.io/badge/Librosa-AudioProcessing-purple?style=for-the-badge)
+![Whisper](https://img.shields.io/badge/OpenAI-Whisper-green?style=for-the-badge)
 ![JavaScript](https://img.shields.io/badge/Frontend-JS-yellow?style=for-the-badge&logo=javascript)
 
 </div>
@@ -14,17 +19,18 @@
 
 ## 📌 Overview
 
-A **Linux-compatible AI voice assistant** powered by **Faster-Whisper (large-v3)**.
+This is an **end-to-end Speech Recognition System** that combines:
 
-- 🎤 **Speech-to-Text** — Accurate transcription using Faster-Whisper
-- 🧠 **Intent Detection** — Recognises voice commands from transcribed text
-- ⚡ **Command Execution** — Runs Linux system commands directly
-- 🛡️ **Safety Rules** — Dangerous commands require explicit confirmation
-- 🌐 **Flask Web App** — Premium dark-themed chat UI
+- 🧠 **Speech-to-Text (Whisper)**
+- 🤖 **Custom ML Classification (Yes/No)**
+- 🌐 **Flask Web App Interface**
+
+It allows users to **record voice, transcribe it, and classify it in real-time**.
 
 ---
 
 ## 🎯 Key Features
+
 
 - Real-time voice recording (browser microphone)
 - Audio file upload (WAV, MP3, WebM, OGG, FLAC, M4A)
@@ -87,44 +93,52 @@ sudo apt install ffmpeg -y
 
 ### 2️⃣ Clone & Setup
 
-```bash
-git clone https://github.com/Ashmita1206/Speech-Recognition.git
-cd Speech-Recognition
-git checkout feature/voice-assistant-linux
-```
-
-### 3️⃣ Virtual Environment
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-### 4️⃣ Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 5️⃣ Run Application
-
-```bash
-python3 app.py
-```
-
-Open in browser: **http://localhost:5000**
-
-> ⚠️ First run will download the Faster-Whisper large-v3 model (~3 GB).
+- 🎤 Real-time voice recording (browser)
+- 🔄 Audio format conversion (WebM → WAV)
+- 🧠 Whisper-based speech-to-text (offline)
+- 🤖 ML model for Yes/No classification
+- 📊 Spectrogram generation
+- 🌐 Interactive Flask web app
 
 ---
 
-## 📡 API Endpoints
+## 📸 Screenshots
 
-### `POST /transcribe`
 
-Accept audio, transcribe, detect & execute commands.
+> ⚠️ Add your screenshots here
 
-**Request:** `multipart/form-data` with `audio` file field.
+```html
+<!-- Example -->
+<img width="2560" height="1244" alt="Screenshot 2026-06-11 212852" src="https://github.com/user-attachments/assets/a677b55e-8d2e-4dc0-a139-43f16b0f6e32" />
+<img width="2560" height="1252" alt="Screenshot 2026-06-11 212915" src="https://github.com/user-attachments/assets/727616f5-6491-4648-9261-18e31540a43d" />
+
+🛠️ Tech Stack
+🔹 Languages
+Python
+
+JavaScript
+
+HTML
+
+CSS
+
+🔹 Libraries & Frameworks
+Flask
+
+NumPy
+
+Librosa
+
+TensorFlow / Keras
+
+OpenAI Whisper
+
+🔹 Tools
+FFmpeg
+
+Git & GitHub
+
+VS Code
 
 **Response:**
 
@@ -141,10 +155,55 @@ Accept audio, transcribe, detect & execute commands.
   "status": "success"
 }
 ```
+🏗️ Project Structure
+SPEECH-RECOGNITION/
+│
+├── app.py                 # Main Flask app
+├── requirements.txt       # Dependencies
+├── test.py                # Model testing
+│
+├── data/
+│   ├── yes/
+│   └── no/
+│
+├── model/
+│   ├── model.py
+│   ├── speech_model.keras
+│   └── label_map.json
+│
+├── utils/
+│   ├── audio_processing.py
+│   ├── dataset.py
+│   └── predict.py
+│
+├── static/
+│   ├── uploads/
+│   ├── spectrograms/
+│   ├── script.js
+│   └── style.css
+│
+├── templates/
+│   └── index.html
+⚙️ Installation & Setup
+1️⃣ Clone Repository
+git clone <your-repo-link>
+cd SPEECH-RECOGNITION
+2️⃣ Create Virtual Environment
+python -m venv .venv
+.venv\Scripts\activate
+3️⃣ Install Dependencies
+pip install -r requirements.txt
+▶️ Run Application
+python app.py
+Open in browser:
 
-### `POST /execute`
 
-Confirm and execute a dangerous command.
+http://127.0.0.1:5000
+🧠 How It Works
+🎤 User records audio
+
+🔄 Audio converted to WAV
+
 
 **Request:**
 
@@ -155,11 +214,16 @@ Confirm and execute a dangerous command.
 }
 ```
 
-### `POST /predict` (Legacy)
+🧠 Whisper transcribes speech
 
-Backward-compatible alias for `/transcribe`.
 
----
+🤖 ML model predicts YES/NO
+
+📊 Spectrogram generated
+
+📊 Model Details
+Feature Extraction: MFCC
+
 
 ## 🧠 Supported Voice Commands
 
@@ -182,16 +246,18 @@ Backward-compatible alias for `/transcribe`.
 | **"delete files"**    | Blocked for safety          | **⚠️ Yes** |
 | **"system update"**   | Runs `apt update`           | **⚠️ Yes** |
 
----
+Model Type: Neural Network (Keras)
 
-## ⚠️ Safety Rules
 
-- Dangerous commands (shutdown, reboot, delete, system update) are **never executed automatically**
-- The system returns a confirmation token
-- The user must explicitly confirm via the UI before execution
-- File deletion commands are **always blocked**
+Input Shape: (timesteps, features)
 
----
+Output: Binary (Yes / No)
+
+⚠️ Important Notes
+Whisper runs locally → no API key needed
+
+First run may take time (model loading)
+
 
 ## 🌐 Translation Suite
 
@@ -236,29 +302,35 @@ The system automatically detects the requested target language and translates th
 | Whisper fails     | "Transcription failed"                  |
 | No command match  | Returns transcription only (no command) |
 
+Ensure FFmpeg is installed/configured
+
+🔮 Future Improvements
+🎯 Multi-class classification
+
+
+🌍 Multi-language support
+
+⚡ Faster inference
+
+📱 Mobile compatibility
+
+👩‍💻 Author
+Ashmita Goyal
+
+⭐ Show Some Love
+If you liked this project, give it a ⭐ on GitHub!
+
+
 ---
 
-## ⚡ Performance
+## 🔥 Extra Pro Tips (THIS matters)
 
-- **Model loaded once** at startup (global singleton)
-- **CPU optimisation** with int8 quantisation (CTranslate2)
-- **VAD filter** enabled to skip silence
-- **Beam search** (size=5) for accuracy
+👉 Screenshot section:
+- UI ka screenshot
+- spectrogram output
+- prediction result
 
----
-
-## 🔮 Future Improvements
-
-- 🎯 Custom wake word detection
-- 🌍 Multi-language voice commands
-- 🔊 Text-to-Speech responses
-- 📱 Mobile-optimised UI
-- 🔌 Plugin system for custom commands
-
----
-
-## 👩‍💻 Author
-
-**Ashmita Goyal**
-
-⭐ If you liked this project, give it a ⭐ on GitHub!
+👉 Add later:
+```markdown
+## 🎥 Demo Video
+[Watch Demo](your-link)

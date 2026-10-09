@@ -1,4 +1,5 @@
 """
+
 Prediction module — Faster-Whisper speech-to-text.
 
 Flow:
@@ -11,9 +12,22 @@ Flow:
 import os
 import time
 
+Prediction module – Whisper-powered speech-to-text + keyword classification.
+
+Flow:
+  1. Transcribe audio with OpenAI Whisper (local model, no API key needed).
+  2. Classify the transcribed text as YES / NO / UNKNOWN.
+  3. Return transcription, classification, and a confidence score.
+"""
+
+import os
+import re
+import math
+import whisper
+
 # ---------------------------------------------------------------------------
 # Ensure ffmpeg is on PATH before Whisper tries to use it
-# (Faster-Whisper calls ffmpeg via subprocess internally)
+# (Whisper calls ffmpeg via subprocess internally)
 # ---------------------------------------------------------------------------
 try:
     import imageio_ffmpeg
@@ -22,6 +36,7 @@ try:
         os.environ["PATH"] = _ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 except ImportError:
     pass  # Fall back to system ffmpeg
+
 
 # Ensure HuggingFace cache is on D: drive where space is available
 _cache_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".hf_cache"))
@@ -58,11 +73,84 @@ def transcribe_audio(audio_path: str, language_preference: str = None) -> dict:
     """
     Transcribe audio and return clean text and metadata.
 
+# ---------------------------------------------------------------------------
+# Load the Whisper model once at import time (cached across requests)
+# Available sizes: tiny, base, small, medium, large
+# "base" is a good trade-off between speed and accuracy.
+# ---------------------------------------------------------------------------
+print("Loading Whisper model (base)... This may take a moment on first run.")
+whisper_model = whisper.load_model("base")
+print("Whisper model loaded successfully.")
+
+
+# ---------------------------------------------------------------------------
+# YES / NO keyword lists (handles common variations & mishearings)
+# ---------------------------------------------------------------------------
+YES_KEYWORDS = [
+    "yes", "yeah", "yep", "yup", "ya", "yah", "sure", "absolutely",
+    "correct", "affirmative", "indeed", "right", "okay", "ok",
+    "of course", "definitely", "certainly",
+]
+
+NO_KEYWORDS = [
+    "no", "nope", "nah", "nay", "negative", "never", "not",
+    "don't", "do not", "doesn't", "does not", "wasn't", "won't",
+]
+
+
+def _classify_text(text: str) -> str:
+    """
+    Classify transcribed text as YES, NO, or UNKNOWN.
+    Uses simple keyword matching on the cleaned text.
+    """
+    cleaned = text.strip().lower()
+
+    # Remove common punctuation for better matching
+    cleaned = re.sub(r'[^\w\s]', '', cleaned)
+
+    # Check for YES keywords
+    for kw in YES_KEYWORDS:
+        if re.search(r'\b' + re.escape(kw) + r'\b', cleaned):
+            return "YES"
+
+    # Check for NO keywords
+    for kw in NO_KEYWORDS:
+        if re.search(r'\b' + re.escape(kw) + r'\b', cleaned):
+            return "NO"
+
+    return "UNKNOWN"
+
+
+def _compute_confidence(result: dict) -> float:
+    """
+    Compute a 0-1 confidence score from Whisper's segment-level log probs.
+    Whisper returns avg_logprob per segment; we convert to a probability.
+    """
+    segments = result.get("segments", [])
+    if not segments:
+        return 0.0
+
+    # Average the avg_logprob across all segments
+    avg_log_probs = [seg.get("avg_logprob", -1.0) for seg in segments]
+    mean_log_prob = sum(avg_log_probs) / len(avg_log_probs)
+
+    # Convert log-probability to a 0-1 scale (exp of log prob)
+    # Clamp to [0, 1]
+    confidence = math.exp(mean_log_prob)
+    return round(min(max(confidence, 0.0), 1.0), 4)
+
+
+def predict_audio(audio_path: str) -> dict:
+    """
+    Transcribe the audio file and classify the speech.
+
+
     Args:
         audio_path: Path to a WAV file (16 kHz mono recommended).
         language_preference: Optional expected spoken language (e.g. 'hi', 'en', 'auto').
 
     Returns:
+
         dict matching the API response format:
         {
             "transcription": "<clean text>",
@@ -73,9 +161,16 @@ def transcribe_audio(audio_path: str, language_preference: str = None) -> dict:
             "processing_time": <seconds>,
             "error": "..." (only when status is "error")
         }
+
+        dict with keys:
+            transcription (str) – full transcribed text
+            prediction    (str) – YES / NO / UNKNOWN
+            confidence    (str) – e.g. "87.32%"
+
     """
     start_time = time.time()
     try:
+
         model = get_whisper_model()
 
         # Resolve language and initial prompt preference
@@ -110,8 +205,14 @@ def transcribe_audio(audio_path: str, language_preference: str = None) -> dict:
         processing_time = round(time.time() - start_time, 2)
         detected_lang = getattr(info, "language", "en") if 'info' in locals() and info else "en"
 
+        # Transcribe with Whisper
+        result = whisper_model.transcribe(audio_path, fp16=False)
+        transcription = result.get("text", "").strip()
+
+
         if not raw_transcription:
             return {
+
                 "transcription": "",
                 "command": None,
                 "status": "error",
@@ -137,18 +238,36 @@ def transcribe_audio(audio_path: str, language_preference: str = None) -> dict:
             except Exception:
                 command_result = None
 
+                "success": False,
+                "error": "Whisper could not detect any speech in the audio."
+            }
+
+        # Classify
+        prediction = _classify_text(transcription)
+
+        # Confidence
+        confidence = _compute_confidence(result)
+
+
         return {
+            "success": True,
             "transcription": transcription,
+
             "command": command_result,
             "status": "success",
             "language": detected_lang,
             "duration": round(getattr(info, "duration", 0.0), 2) if 'info' in locals() and info else 0.0,
             "processing_time": processing_time,
+
+            "prediction": prediction,
+            "confidence": f"{confidence * 100:.2f}%",
+
         }
 
     except Exception as e:
         processing_time = round(time.time() - start_time, 2)
         return {
+
             "transcription": "",
             "command": None,
             "status": "error",
@@ -156,4 +275,8 @@ def transcribe_audio(audio_path: str, language_preference: str = None) -> dict:
             "language": "en",
             "duration": 0.0,
             "processing_time": processing_time,
+
+            "success": False,
+            "error": f"Prediction failed: {e}",
+
         }

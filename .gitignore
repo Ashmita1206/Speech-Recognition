@@ -13,6 +13,7 @@ logs/
 *.png
 
 static/uploads/
+
 static/spectrograms/
 
 # Faster-Whisper model cache
@@ -20,3 +21,6 @@ static/spectrograms/
 huggingface/
 # Local Whisper model cache
 .hf_cache/
+
+static/spectrograms/
+
