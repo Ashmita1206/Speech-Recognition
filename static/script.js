@@ -263,7 +263,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     const barHeight = Math.max(3, (dataArray[i] / 255) * height * 0.85);
                     const y = (height - barHeight) / 2;
 
-                    ctx.fillStyle = '#1e3a8a';
+                    ctx.fillStyle = '#09090b';
                     ctx.fillRect(x, y, barWidth, barHeight);
                     x += barWidth + 2;
                 }
@@ -777,7 +777,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (translationSelectorBox) {
             translationSelectorBox.style.display = 'flex';
             hideTranslationError();
-            if (lastSourceLanguage && lastSourceLanguage.toLowerCase() === 'hi') {
+            if (!currentTranslationData && lastSourceLanguage && lastSourceLanguage.toLowerCase() === 'hi') {
                 targetLanguageSelect.value = 'English';
             }
             translationSelectorBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });

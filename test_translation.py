@@ -1,15 +1,20 @@
 """
-Unit & Integration Tests for Translation Feature
-=================================================
-Validates:
-  1. GET /languages endpoint.
-  2. POST /translate endpoint with various languages.
-  3. POST /translate error handling (unsupported language, empty inputs).
-  4. Natural voice translation command detection.
-  5. UI template contains all necessary translation components.
+Unit & Integration Tests for Speech Recognition & Translation Feature
+======================================================================
+Validates all requirements:
+  - Test A: Hindi transcription (Devanagari script consistency, no Urdu/Roman mixing)
+  - Test B: Hindi to English translation ("मुझे एक कप चाय पीनी है।" -> "I want to have a cup of tea.")
+  - Test C: English to Hindi translation ("I need to drink a cup of tea." -> "मुझे एक कप चाय पीनी है।")
+  - Test D: English to Spanish translation ("Good morning." -> "Buenos días.")
+  - Test E: Changing language (fresh translation of original sentence)
+  - Test F: Translation failure returns clear error without returning input unchanged
+  - Test G: Regression verification of /transcribe and original transcript preservation
+  - Plus language listing, voice command detection, and frontend template elements.
 """
 
+import os
 import unittest
+from unittest.mock import patch
 from app import app
 from utils.translator import (
     translate_text,
@@ -17,6 +22,12 @@ from utils.translator import (
     resolve_language,
     get_supported_languages,
 )
+from utils.script_normalizer import (
+    normalize_hindi_script,
+    normalize_transcript,
+)
+from utils.predict import transcribe_audio
+
 
 class TranslationFeatureTests(unittest.TestCase):
 
@@ -68,29 +79,175 @@ class TranslationFeatureTests(unittest.TestCase):
             cmd = detect_translation_command(text)
             self.assertIsNone(cmd, f"False positive command detection for: {text}")
 
-    def test_translate_endpoint_success(self):
-        """Test POST /translate endpoint with Hindi and Spanish."""
-        # 1. English to Hindi
-        res = self.client.post('/translate', json={
-            'text': 'Good morning everyone',
-            'target_language': 'Hindi'
-        })
-        self.assertEqual(res.status_code, 200)
-        data = res.get_json()
-        self.assertEqual(data['status'], 'success')
-        self.assertEqual(data['source_text'], 'Good morning everyone')
-        self.assertTrue(len(data['translated_text']) > 0)
-        self.assertEqual(data['target_language'], 'Hindi')
+    # =========================================================================
+    # User Request Specified Test Cases A through G
+    # =========================================================================
 
-        # 2. English to Spanish
-        res = self.client.post('/translate', json={
-            'text': 'I have an exam tomorrow.',
-            'target_language': 'Spanish'
+    def test_test_a_hindi_transcription(self):
+        """
+        Test A — Hindi transcription
+        Input: Hindi speech saying 'Mujhe ek cup chai peeni hai.'
+        Expected: A readable Hindi transcript in Devanagari, without unintended Urdu/Roman mixing.
+        """
+        # Test script normalization directly on Hinglish and Urdu inputs
+        norm_hinglish = normalize_transcript("Mujhe ek cup chai peeni hai.", detected_language="hi")
+        self.assertIn("मुझे", norm_hinglish)
+        self.assertIn("चाय", norm_hinglish)
+        self.assertIn("पीनी", norm_hinglish)
+        self.assertIn("है", norm_hinglish)
+
+        # Test Urdu script conversion to Devanagari
+        norm_urdu = normalize_transcript("مجھے ایک کپ چائے پینی ہے", detected_language="hi")
+        self.assertIn("मुझे", norm_urdu)
+        self.assertIn("चाय", norm_urdu)
+
+        # Verify already-correct Devanagari text remains intact
+        correct_dev = "मुझे एक कप चाय पीनी है।"
+        norm_correct = normalize_transcript(correct_dev, detected_language="hi")
+        self.assertEqual(norm_correct, correct_dev)
+
+        # Test on audio file if available
+        audio_file = "test_hindi.wav"
+        if os.path.isfile(audio_file):
+            result = transcribe_audio(audio_file)
+            self.assertEqual(result["status"], "success")
+            self.assertEqual(result["language"], "hi")
+            self.assertIn("चाय", result["transcription"])
+            self.assertIn("कप", result["transcription"])
+
+    def test_test_b_hindi_to_english(self):
+        """
+        Test B — Hindi to English
+        Input: 'मुझे एक कप चाय पीनी है।'
+        Target: English
+        Expected: 'I want to have a cup of tea.'
+        """
+        res = translate_text("मुझे एक कप चाय पीनी है।", "English")
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(res["source_text"], "मुझे एक कप चाय पीनी है।")
+        self.assertEqual(res["target_language"], "English")
+        self.assertEqual(res["translated_text"], "I want to have a cup of tea.")
+
+        # Also via HTTP endpoint
+        http_res = self.client.post("/translate", json={
+            "text": "मुझे एक कप चाय पीनी है।",
+            "target_language": "English",
         })
-        self.assertEqual(res.status_code, 200)
-        data = res.get_json()
-        self.assertEqual(data['status'], 'success')
-        self.assertIn('examen', data['translated_text'].lower())
+        self.assertEqual(http_res.status_code, 200)
+        data = http_res.get_json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["translated_text"], "I want to have a cup of tea.")
+
+    def test_test_c_english_to_hindi(self):
+        """
+        Test C — English to Hindi
+        Input: 'I need to drink a cup of tea.'
+        Target: Hindi
+        Expected: 'मुझे एक कप चाय पीनी है।'
+        """
+        res = translate_text("I need to drink a cup of tea.", "Hindi")
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(res["source_text"], "I need to drink a cup of tea.")
+        self.assertEqual(res["target_language"], "Hindi")
+        self.assertEqual(res["translated_text"], "मुझे एक कप चाय पीनी है।")
+
+        # Also via HTTP endpoint
+        http_res = self.client.post("/translate", json={
+            "text": "I need to drink a cup of tea.",
+            "target_language": "Hindi",
+        })
+        self.assertEqual(http_res.status_code, 200)
+        data = http_res.get_json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["translated_text"], "मुझे एक कप चाय पीनी है।")
+
+    def test_test_d_english_to_spanish(self):
+        """
+        Test D — English to Spanish
+        Input: 'Good morning.'
+        Target: Spanish
+        Expected: 'Buenos días.'
+        """
+        res = translate_text("Good morning.", "Spanish")
+        self.assertEqual(res["status"], "success")
+        self.assertEqual(res["source_text"], "Good morning.")
+        self.assertEqual(res["target_language"], "Spanish")
+        self.assertEqual(res["translated_text"], "Buenos días.")
+
+        # Also via HTTP endpoint
+        http_res = self.client.post("/translate", json={
+            "text": "Good morning.",
+            "target_language": "Spanish",
+        })
+        self.assertEqual(http_res.status_code, 200)
+        data = http_res.get_json()
+        self.assertEqual(data["status"], "success")
+        self.assertEqual(data["translated_text"], "Buenos días.")
+
+    def test_test_e_changing_language(self):
+        """
+        Test E — Changing language
+        Translate the same original sentence into Hindi and then English.
+        The results must reflect each selected target language.
+        """
+        original = "मुझे एक कप चाय पीनी है।"
+
+        # 1. Translate original into Hindi (same-language normalization)
+        res_hindi = translate_text(original, "Hindi")
+        self.assertEqual(res_hindi["status"], "success")
+        self.assertEqual(res_hindi["translated_text"], "मुझे एक कप चाय पीनी है।")
+        self.assertEqual(res_hindi["target_language"], "Hindi")
+
+        # 2. Translate same original into English
+        res_english = translate_text(original, "English")
+        self.assertEqual(res_english["status"], "success")
+        self.assertEqual(res_english["translated_text"], "I want to have a cup of tea.")
+        self.assertEqual(res_english["target_language"], "English")
+
+        # Ensure results are distinctly different and reflect each target language
+        self.assertNotEqual(res_hindi["translated_text"], res_english["translated_text"])
+
+    def test_test_f_translation_failure(self):
+        """
+        Test F — Translation failure
+        If the translation service is unavailable, return a clear error.
+        Do not report the original sentence as a successful translation.
+        """
+        with patch('requests.get', side_effect=Exception("Service down")):
+            with patch('requests.post', side_effect=Exception("Service down")):
+                res = translate_text("Good morning everyone.", "Spanish")
+                self.assertEqual(res["status"], "error")
+                self.assertIn("unavailable", res.get("error", "").lower())
+                # Must NOT return original sentence as translated_text
+                self.assertNotIn("translated_text", res)
+
+    def test_test_g_regression(self):
+        """
+        Test G — Regression
+        Verify that /transcribe continues to work and that the original
+        transcription remains unchanged after translation.
+        """
+        audio_file = "test_hindi.wav"
+        if os.path.isfile(audio_file):
+            with open(audio_file, "rb") as f:
+                tx_res = self.client.post("/transcribe", data={"audio": (f, "test_hindi.wav")})
+            self.assertEqual(tx_res.status_code, 200)
+            tx_data = tx_res.get_json()
+            self.assertEqual(tx_data["status"], "success")
+            original_tx = tx_data["transcription"]
+            self.assertTrue(len(original_tx) > 0)
+
+            # Perform translation
+            tr_res = self.client.post("/translate", json={
+                "text": original_tx,
+                "target_language": "English",
+            })
+            self.assertEqual(tr_res.status_code, 200)
+            tr_data = tr_res.get_json()
+
+            # Verify original source_text in translation response matches original transcription
+            self.assertEqual(tr_data["source_text"], original_tx)
+            self.assertNotEqual(tr_data["translated_text"], original_tx)
 
     def test_translate_endpoint_errors(self):
         """Test POST /translate validation and friendly error handling."""
@@ -126,6 +283,7 @@ class TranslationFeatureTests(unittest.TestCase):
         self.assertIn('btn-listen-translation', html)
         self.assertIn('trans-original-content', html)
         self.assertIn('trans-target-content', html)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -8,23 +8,23 @@
    CSS Variables & Design Tokens
    -------------------------------------------------------------------------- */
 :root {
-    --bg-app: #f4f6f9;
+    --bg-app: #f8f9fa;
     --bg-card: #ffffff;
-    --bg-surface-hover: #f1f4f8;
-    --bg-surface-active: #e2e8f0;
+    --bg-surface-hover: #f1f2f4;
+    --bg-surface-active: #e5e7eb;
 
-    --border-subtle: #e2e8f0;
-    --border-medium: #cbd5e1;
-    --border-focus: #1d4ed8;
+    --border-subtle: #e5e7eb;
+    --border-medium: #d1d5db;
+    --border-focus: #09090b;
 
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --text-muted: #64748b;
+    --text-primary: #09090b;
+    --text-secondary: #374151;
+    --text-muted: #6b7280;
     --text-on-accent: #ffffff;
 
-    --accent-primary: #1e3a8a;
-    --accent-hover: #1e40af;
-    --accent-subtle: #eff6ff;
+    --accent-primary: #09090b;
+    --accent-hover: #27272a;
+    --accent-subtle: #f4f4f5;
 
     --danger: #b91c1c;
     --danger-hover: #991b1b;
@@ -252,7 +252,7 @@ input, textarea {
     height: 72px;
     border-radius: 50%;
     background-color: var(--accent-subtle);
-    border: 1px solid rgba(30, 58, 138, 0.15);
+    border: 1px solid rgba(0, 0, 0, 0.12);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -679,7 +679,7 @@ input, textarea {
     gap: 16px;
     padding: 14px 18px;
     background-color: var(--accent-subtle);
-    border: 1px solid rgba(30, 58, 138, 0.2);
+    border: 1px solid rgba(0, 0, 0, 0.12);
     border-radius: var(--radius-sm);
     animation: fadeInSlide 220ms ease-out;
 }
@@ -706,7 +706,7 @@ input, textarea {
     height: 34px;
     border-radius: 50%;
     background-color: #ffffff;
-    border: 1px solid rgba(30, 58, 138, 0.2);
+    border: 1px solid rgba(0, 0, 0, 0.12);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -895,7 +895,7 @@ input, textarea {
     padding: 4px 12px;
     border-radius: 14px;
     background-color: var(--accent-subtle);
-    border: 1px solid rgba(30, 58, 138, 0.2);
+    border: 1px solid rgba(0, 0, 0, 0.12);
     color: var(--accent-primary);
     font-size: 0.95rem;
     font-weight: 700;
@@ -952,8 +952,8 @@ input, textarea {
 }
 
 .target-pane .pane-content {
-    background-color: #fafbfc;
-    border-color: rgba(30, 58, 138, 0.25);
+    background-color: #fafafa;
+    border-color: rgba(0, 0, 0, 0.18);
 }
 
 /* --------------------------------------------------------------------------
@@ -1045,7 +1045,7 @@ input, textarea {
     gap: 12px;
     padding: 12px 18px;
     background-color: var(--accent-subtle);
-    border: 1px solid rgba(30, 58, 138, 0.2);
+    border: 1px solid rgba(0, 0, 0, 0.12);
     border-radius: var(--radius-sm);
     color: var(--accent-primary);
     font-size: 1.02rem;
@@ -1055,7 +1055,7 @@ input, textarea {
 .status-spinner {
     width: 18px;
     height: 18px;
-    border: 2px solid rgba(30, 58, 138, 0.2);
+    border: 2px solid rgba(0, 0, 0, 0.15);
     border-top-color: var(--accent-primary);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;

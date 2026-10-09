@@ -105,8 +105,15 @@ def transcribe():
         wav_path = os.path.join(UPLOAD_FOLDER, wav_filename)
         convert_to_wav(raw_path, wav_path)
 
+        # Optional language preference (e.g., 'hi', 'en', 'auto')
+        language_pref = (
+            request.form.get("language")
+            or request.form.get("language_preference")
+            or request.args.get("language")
+        )
+
         # ----- Transcribe & detect commands -----
-        result = transcribe_audio(wav_path)
+        result = transcribe_audio(wav_path, language_preference=language_pref)
 
         # ----- Clean up temp files -----
         try:
