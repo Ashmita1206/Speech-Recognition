@@ -1,0 +1,86 @@
+# ---------------------------------------------------------------------------
+# .dockerignore — Speech Recognition Studio
+# Excludes local caches, environments, audio recordings, and secrets
+# ---------------------------------------------------------------------------
+# Version Control
+.git/
+.gitignore
+.github/
+
+# Virtual Environments
+venv/
+.venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Python Bytecode and Caches
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Model Caches and Weights (downloaded at runtime inside container)
+.hf_cache/
+HF_CACHE/
+.cache/
+huggingface/
+*.keras
+*.pt
+*.pkl
+model/*.keras
+
+# Local User Recordings and Staged Files
+static/uploads/*
+!static/uploads/.gitkeep
+static/spectrograms/*
+!static/spectrograms/.gitkeep
+*.wav
+*.webm
+*.mp3
+*.ogg
+*.flac
+*.m4a
+test_hindi.wav
+
+# Local Editor Artifacts
+.vscode/
+.idea/
+*.sublime-*
+
+# Documentation and Development Scratchpads
+docs/
+scratch/
+logs/
+training_history.png
+
+
+# Local Python environments
+venv/
+clean_venv/
+.venv/
+
+# Whisper model weights and caches
+.hf_cache/
+HF_CACHE/
+.cache/
+
+# Temporary downloads
+clean_tmp/
+tmp/
+temp/
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+
+# Git history and local environment files
+.git/
+.env
+.env.*
+
+# Runtime uploads
+static/uploads/*
+!static/uploads/.gitkeep

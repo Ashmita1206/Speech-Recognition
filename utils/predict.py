@@ -1,177 +1,129 @@
 """
-
 Prediction module — Faster-Whisper speech-to-text.
 
 Flow:
-  1. Load Faster-Whisper model (with cache on D: drive where space is available).
+  1. Load Faster-Whisper model (with environment-configurable cache path).
   2. Transcribe incoming audio files (16 kHz mono WAV).
   3. Detect optional commands if configured.
-  4. Return clean transcription and speech metadata.
+  4. Return clean transcription, script-normalized text, and speech metadata.
 """
 
 import os
 import time
 
-Prediction module – Whisper-powered speech-to-text + keyword classification.
-
-Flow:
-  1. Transcribe audio with OpenAI Whisper (local model, no API key needed).
-  2. Classify the transcribed text as YES / NO / UNKNOWN.
-  3. Return transcription, classification, and a confidence score.
-"""
-
-import os
-import re
-import math
-import whisper
-
 # ---------------------------------------------------------------------------
 # Ensure ffmpeg is on PATH before Whisper tries to use it
-# (Whisper calls ffmpeg via subprocess internally)
+# (Faster-Whisper calls ffmpeg via subprocess internally)
 # ---------------------------------------------------------------------------
 try:
     import imageio_ffmpeg
-    _ffmpeg_dir = os.path.dirname(imageio_ffmpeg.get_ffmpeg_exe())
+    _ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+    _ffmpeg_dir = os.path.dirname(_ffmpeg_exe)
     if _ffmpeg_dir not in os.environ.get("PATH", ""):
         os.environ["PATH"] = _ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 except ImportError:
     pass  # Fall back to system ffmpeg
 
-
-# Ensure HuggingFace cache is on D: drive where space is available
-_cache_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".hf_cache"))
-os.environ["HF_HOME"] = _cache_dir
+# ---------------------------------------------------------------------------
+# Hugging Face Model Cache Configuration
+# Supports HF_HOME or WHISPER_CACHE_DIR from environment; defaults to local .hf_cache
+# ---------------------------------------------------------------------------
+_env_cache = os.environ.get("HF_HOME") or os.environ.get("WHISPER_CACHE_DIR")
+if _env_cache:
+    _cache_dir = os.path.abspath(_env_cache)
+else:
+    _cache_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".hf_cache"))
+    os.environ["HF_HOME"] = _cache_dir
 
 from faster_whisper import WhisperModel
-from utils.commands import detect_command, execute_command
 from utils.script_normalizer import normalize_transcript
 
-whisper_model = None
+try:
+    from utils.commands import detect_command, execute_command
+except ImportError:
+    detect_command = None
+    execute_command = None
+
+# Model singleton and loaded model metadata tracker
+_whisper_model = None
+_loaded_model_name = None
+
+
+def get_loaded_model_name() -> str | None:
+    """Return the name of the currently active in-memory Whisper model."""
+    return _loaded_model_name
+
 
 def get_whisper_model():
-    """Load Faster-Whisper model with fallback for available RAM/disk space."""
-    global whisper_model
-    if whisper_model is None:
-        model_name = os.environ.get("WHISPER_MODEL", "large-v3")
-        print(f"[predict] Initializing Faster-Whisper model ({model_name}) using cache: {_cache_dir}…")
+    """
+    Load Faster-Whisper model singleton with graceful memory fallback.
+
+    Default configured model is 'large-v3' (or WHISPER_MODEL env var).
+    If memory allocation (e.g. mkl_malloc / OOM) or download fails,
+    explicitly falls back to 'base' (or 'tiny') and logs the actual state.
+    """
+    global _whisper_model, _loaded_model_name
+    if _whisper_model is None:
+        target_model = os.environ.get("WHISPER_MODEL", "large-v3").strip()
+        print(f"[predict] Initializing Faster-Whisper model ('{target_model}') using cache: {_cache_dir}...")
         try:
-            whisper_model = WhisperModel(model_name, device="cpu", compute_type="int8", download_root=_cache_dir)
-            print(f"[predict] Faster-Whisper model ({model_name}) loaded successfully.")
+            _whisper_model = WhisperModel(
+                target_model,
+                device="cpu",
+                compute_type="int8",
+                download_root=_cache_dir,
+            )
+            _loaded_model_name = target_model
+            print(f"[predict] Faster-Whisper model ('{_loaded_model_name}') loaded successfully.")
         except Exception as e:
-            print(f"[predict] Warning loading {model_name}: {e}. Trying base model fallback...")
+            print(f"[predict] Warning loading '{target_model}': {e}. Activating fallback to 'base' model...")
             try:
-                whisper_model = WhisperModel("base", device="cpu", compute_type="int8", download_root=_cache_dir)
-                print("[predict] Faster-Whisper base model loaded.")
+                _whisper_model = WhisperModel(
+                    "base",
+                    device="cpu",
+                    compute_type="int8",
+                    download_root=_cache_dir,
+                )
+                _loaded_model_name = "base"
+                print(f"[predict] Faster-Whisper fallback model ('base') loaded successfully.")
             except Exception as e2:
-                print(f"[predict] Fallback to tiny model: {e2}")
-                whisper_model = WhisperModel("tiny", device="cpu", compute_type="int8", download_root=_cache_dir)
-                print("[predict] Whisper fallback model loaded.")
-    return whisper_model
+                print(f"[predict] Warning loading 'base' model: {e2}. Activating emergency fallback to 'tiny' model...")
+                _whisper_model = WhisperModel(
+                    "tiny",
+                    device="cpu",
+                    compute_type="int8",
+                    download_root=_cache_dir,
+                )
+                _loaded_model_name = "tiny"
+                print(f"[predict] Faster-Whisper emergency fallback model ('tiny') loaded successfully.")
+    return _whisper_model
 
 
 def transcribe_audio(audio_path: str, language_preference: str = None) -> dict:
     """
     Transcribe audio and return clean text and metadata.
 
-# ---------------------------------------------------------------------------
-# Load the Whisper model once at import time (cached across requests)
-# Available sizes: tiny, base, small, medium, large
-# "base" is a good trade-off between speed and accuracy.
-# ---------------------------------------------------------------------------
-print("Loading Whisper model (base)... This may take a moment on first run.")
-whisper_model = whisper.load_model("base")
-print("Whisper model loaded successfully.")
-
-
-# ---------------------------------------------------------------------------
-# YES / NO keyword lists (handles common variations & mishearings)
-# ---------------------------------------------------------------------------
-YES_KEYWORDS = [
-    "yes", "yeah", "yep", "yup", "ya", "yah", "sure", "absolutely",
-    "correct", "affirmative", "indeed", "right", "okay", "ok",
-    "of course", "definitely", "certainly",
-]
-
-NO_KEYWORDS = [
-    "no", "nope", "nah", "nay", "negative", "never", "not",
-    "don't", "do not", "doesn't", "does not", "wasn't", "won't",
-]
-
-
-def _classify_text(text: str) -> str:
-    """
-    Classify transcribed text as YES, NO, or UNKNOWN.
-    Uses simple keyword matching on the cleaned text.
-    """
-    cleaned = text.strip().lower()
-
-    # Remove common punctuation for better matching
-    cleaned = re.sub(r'[^\w\s]', '', cleaned)
-
-    # Check for YES keywords
-    for kw in YES_KEYWORDS:
-        if re.search(r'\b' + re.escape(kw) + r'\b', cleaned):
-            return "YES"
-
-    # Check for NO keywords
-    for kw in NO_KEYWORDS:
-        if re.search(r'\b' + re.escape(kw) + r'\b', cleaned):
-            return "NO"
-
-    return "UNKNOWN"
-
-
-def _compute_confidence(result: dict) -> float:
-    """
-    Compute a 0-1 confidence score from Whisper's segment-level log probs.
-    Whisper returns avg_logprob per segment; we convert to a probability.
-    """
-    segments = result.get("segments", [])
-    if not segments:
-        return 0.0
-
-    # Average the avg_logprob across all segments
-    avg_log_probs = [seg.get("avg_logprob", -1.0) for seg in segments]
-    mean_log_prob = sum(avg_log_probs) / len(avg_log_probs)
-
-    # Convert log-probability to a 0-1 scale (exp of log prob)
-    # Clamp to [0, 1]
-    confidence = math.exp(mean_log_prob)
-    return round(min(max(confidence, 0.0), 1.0), 4)
-
-
-def predict_audio(audio_path: str) -> dict:
-    """
-    Transcribe the audio file and classify the speech.
-
-
     Args:
         audio_path: Path to a WAV file (16 kHz mono recommended).
         language_preference: Optional expected spoken language (e.g. 'hi', 'en', 'auto').
 
     Returns:
-
         dict matching the API response format:
         {
             "transcription": "<clean text>",
             "command": { ... } or null,
             "status": "success" | "error",
             "language": "<language code>",
+            "model": "<loaded model name>",
             "duration": <seconds>,
             "processing_time": <seconds>,
             "error": "..." (only when status is "error")
         }
-
-        dict with keys:
-            transcription (str) – full transcribed text
-            prediction    (str) – YES / NO / UNKNOWN
-            confidence    (str) – e.g. "87.32%"
-
     """
     start_time = time.time()
     try:
-
         model = get_whisper_model()
+        active_model_name = get_loaded_model_name()
 
         # Resolve language and initial prompt preference
         whisper_lang = None
@@ -193,7 +145,7 @@ def predict_audio(audio_path: str) -> dict:
             beam_size=2,
             language=whisper_lang,
             initial_prompt=initial_prompt,
-            vad_filter=False,     # avoids dependency on onnxruntime
+            vad_filter=False,  # avoids dependency on onnxruntime
         )
 
         # Collect all segment texts
@@ -205,19 +157,14 @@ def predict_audio(audio_path: str) -> dict:
         processing_time = round(time.time() - start_time, 2)
         detected_lang = getattr(info, "language", "en") if 'info' in locals() and info else "en"
 
-        # Transcribe with Whisper
-        result = whisper_model.transcribe(audio_path, fp16=False)
-        transcription = result.get("text", "").strip()
-
-
         if not raw_transcription:
             return {
-
                 "transcription": "",
                 "command": None,
                 "status": "error",
                 "error": "No speech detected in audio",
                 "language": detected_lang,
+                "model": active_model_name,
                 "duration": round(getattr(info, "duration", 0.0), 2) if 'info' in locals() and info else 0.0,
                 "processing_time": processing_time,
             }
@@ -229,54 +176,51 @@ def predict_audio(audio_path: str) -> dict:
             language_preference=language_preference,
         )
 
-        # Optional command detection (preserved for backward compatibility)
-        cmd_info = detect_command(transcription)
+        # Optional command detection (system command policy enforced in commands module)
         command_result = None
-        if cmd_info is not None:
-            try:
-                command_result = execute_command(cmd_info)
-            except Exception:
-                command_result = None
-
-                "success": False,
-                "error": "Whisper could not detect any speech in the audio."
-            }
-
-        # Classify
-        prediction = _classify_text(transcription)
-
-        # Confidence
-        confidence = _compute_confidence(result)
-
+        if callable(detect_command):
+            cmd_info = detect_command(transcription)
+            if cmd_info is not None and callable(execute_command):
+                try:
+                    command_result = execute_command(cmd_info)
+                except Exception:
+                    command_result = None
 
         return {
-            "success": True,
             "transcription": transcription,
-
             "command": command_result,
             "status": "success",
             "language": detected_lang,
+            "model": active_model_name,
             "duration": round(getattr(info, "duration", 0.0), 2) if 'info' in locals() and info else 0.0,
             "processing_time": processing_time,
-
-            "prediction": prediction,
-            "confidence": f"{confidence * 100:.2f}%",
-
         }
 
     except Exception as e:
         processing_time = round(time.time() - start_time, 2)
         return {
-
             "transcription": "",
             "command": None,
             "status": "error",
             "error": f"Transcription failed: {str(e)}",
             "language": "en",
+            "model": get_loaded_model_name(),
             "duration": 0.0,
             "processing_time": processing_time,
-
-            "success": False,
-            "error": f"Prediction failed: {e}",
-
         }
+
+
+def predict_audio(audio_path: str) -> dict:
+    """
+    Backward-compatible alias for transcribe_audio.
+    Provides compatibility for legacy callers expecting 'success' and 'prediction' keys.
+    """
+    res = transcribe_audio(audio_path)
+    return {
+        "success": res.get("status") == "success",
+        "transcription": res.get("transcription", ""),
+        "language": res.get("language", "en"),
+        "model": res.get("model", None),
+        "status": res.get("status", "error"),
+        "error": res.get("error", None),
+    }

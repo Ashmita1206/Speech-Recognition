@@ -9,7 +9,9 @@ Validates all requirements:
   - Test E: Changing language (fresh translation of original sentence)
   - Test F: Translation failure returns clear error without returning input unchanged
   - Test G: Regression verification of /transcribe and original transcript preservation
-  - Plus language listing, voice command detection, and frontend template elements.
+  - Endpoint security tests: OS command execution gate, 403 Forbidden, token expiration
+  - Upload validation tests: Missing files, empty filenames, unsupported extensions
+  - Model lifecycle verification: Real model name tracking
 """
 
 import os
@@ -26,10 +28,16 @@ from utils.script_normalizer import (
     normalize_hindi_script,
     normalize_transcript,
 )
-from utils.predict import transcribe_audio
+from utils.predict import transcribe_audio, get_loaded_model_name
+from utils.commands import detect_command, execute_command, confirm_and_execute
 
 
-class TranslationFeatureTests(unittest.TestCase):
+class TranslationFeatureUnitTests(unittest.TestCase):
+    """
+    Fast automated unit and route tests.
+    Zero model weights downloaded. Validates text translation,
+    script normalization, route errors, UI templates, and security gates.
+    """
 
     def setUp(self):
         self.client = app.test_client()
@@ -80,13 +88,13 @@ class TranslationFeatureTests(unittest.TestCase):
             self.assertIsNone(cmd, f"False positive command detection for: {text}")
 
     # =========================================================================
-    # User Request Specified Test Cases A through G
+    # User Request Specified Test Cases A through G (Unit / Text / Route)
     # =========================================================================
 
-    def test_test_a_hindi_transcription(self):
+    def test_test_a_hindi_script_normalization(self):
         """
-        Test A — Hindi transcription
-        Input: Hindi speech saying 'Mujhe ek cup chai peeni hai.'
+        Test A — Hindi script normalization (Fast unit test)
+        Input: Hindi speech transcribed in Roman Hinglish or Urdu.
         Expected: A readable Hindi transcript in Devanagari, without unintended Urdu/Roman mixing.
         """
         # Test script normalization directly on Hinglish and Urdu inputs
@@ -105,15 +113,6 @@ class TranslationFeatureTests(unittest.TestCase):
         correct_dev = "मुझे एक कप चाय पीनी है।"
         norm_correct = normalize_transcript(correct_dev, detected_language="hi")
         self.assertEqual(norm_correct, correct_dev)
-
-        # Test on audio file if available
-        audio_file = "test_hindi.wav"
-        if os.path.isfile(audio_file):
-            result = transcribe_audio(audio_file)
-            self.assertEqual(result["status"], "success")
-            self.assertEqual(result["language"], "hi")
-            self.assertIn("चाय", result["transcription"])
-            self.assertIn("कप", result["transcription"])
 
     def test_test_b_hindi_to_english(self):
         """
@@ -221,33 +220,23 @@ class TranslationFeatureTests(unittest.TestCase):
                 # Must NOT return original sentence as translated_text
                 self.assertNotIn("translated_text", res)
 
-    def test_test_g_regression(self):
+    def test_test_g_regression_transcript_preservation(self):
         """
-        Test G — Regression
-        Verify that /transcribe continues to work and that the original
-        transcription remains unchanged after translation.
+        Test G — Regression / Transcript Preservation (Fast Unit Test)
+        Verify that /translate preserves the exact source_text without mutation,
+        and that translations reflect target language correctly.
         """
-        audio_file = "test_hindi.wav"
-        if os.path.isfile(audio_file):
-            with open(audio_file, "rb") as f:
-                tx_res = self.client.post("/transcribe", data={"audio": (f, "test_hindi.wav")})
-            self.assertEqual(tx_res.status_code, 200)
-            tx_data = tx_res.get_json()
-            self.assertEqual(tx_data["status"], "success")
-            original_tx = tx_data["transcription"]
-            self.assertTrue(len(original_tx) > 0)
-
-            # Perform translation
-            tr_res = self.client.post("/translate", json={
-                "text": original_tx,
-                "target_language": "English",
-            })
-            self.assertEqual(tr_res.status_code, 200)
-            tr_data = tr_res.get_json()
-
-            # Verify original source_text in translation response matches original transcription
-            self.assertEqual(tr_data["source_text"], original_tx)
-            self.assertNotEqual(tr_data["translated_text"], original_tx)
+        sample_transcript = "मुझे एक कप चाय पीनी है।"
+        tr_res = self.client.post("/translate", json={
+            "text": sample_transcript,
+            "target_language": "English",
+        })
+        self.assertEqual(tr_res.status_code, 200)
+        tr_data = tr_res.get_json()
+        self.assertEqual(tr_data["status"], "success")
+        self.assertEqual(tr_data["source_text"], sample_transcript)
+        self.assertEqual(tr_data["translated_text"], "I want to have a cup of tea.")
+        self.assertNotEqual(tr_data["translated_text"], sample_transcript)
 
     def test_translate_endpoint_errors(self):
         """Test POST /translate validation and friendly error handling."""
@@ -283,6 +272,116 @@ class TranslationFeatureTests(unittest.TestCase):
         self.assertIn('btn-listen-translation', html)
         self.assertIn('trans-original-content', html)
         self.assertIn('trans-target-content', html)
+
+    # =========================================================================
+    # Endpoint Security & Input Validation Tests
+    # =========================================================================
+
+    def test_security_system_commands_disabled_by_default(self):
+        """Verify that system commands are blocked when ENABLE_SYSTEM_COMMANDS is false."""
+        with patch.dict(os.environ, {"ENABLE_SYSTEM_COMMANDS": "false"}):
+            # Safe built-in command executes without shell
+            cmd_time = detect_command("what time is it")
+            self.assertIsNotNone(cmd_time)
+            res_time = execute_command(cmd_time)
+            self.assertTrue(res_time["executed"])
+            self.assertIn("Current date and time", res_time["output"])
+
+            # OS shell command is safely blocked
+            cmd_browser = detect_command("open browser")
+            self.assertIsNotNone(cmd_browser)
+            res_browser = execute_command(cmd_browser)
+            self.assertFalse(res_browser["executed"])
+            self.assertIn("disabled on this server for security", res_browser["output"])
+
+            # POST /execute is rejected with 403 Forbidden
+            res_exec = self.client.post('/execute', json={
+                "confirmation_token": "fake-token",
+                "confirmed": True,
+            })
+            self.assertEqual(res_exec.status_code, 403)
+            data = res_exec.get_json()
+            self.assertIn("disabled", data["error"].lower())
+
+    def test_security_invalid_confirmation_tokens(self):
+        """Verify that invalid or missing confirmation tokens are rejected."""
+        with patch.dict(os.environ, {"ENABLE_SYSTEM_COMMANDS": "true"}):
+            res = confirm_and_execute("nonexistent-token-12345")
+            self.assertFalse(res["executed"])
+            self.assertIn("Invalid or expired", res["output"])
+
+    def test_transcribe_validation_errors(self):
+        """Verify /transcribe returns 400 on missing or invalid audio payloads."""
+        # No files provided
+        res = self.client.post('/transcribe')
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.get_json()["status"], "error")
+
+        # Unsupported extension
+        import io
+        fake_file = (io.BytesIO(b"fake data"), "malicious.exe")
+        res_bad_ext = self.client.post('/transcribe', data={"audio": fake_file})
+        self.assertEqual(res_bad_ext.status_code, 400)
+        self.assertIn("Unsupported audio format", res_bad_ext.get_json()["error"])
+
+
+class WhisperModelIntegrationTests(unittest.TestCase):
+    """
+    Real Whisper Model Integration Test Suite.
+    Runs speech inference on actual audio fixtures.
+    Separated from routine PR CI to prevent multi-gigabyte model downloads.
+    """
+
+    def setUp(self):
+        self.client = app.test_client()
+        self.audio_file = "test_hindi.wav"
+        if not os.path.isfile(self.audio_file):
+            self.skipTest(f"Audio fixture '{self.audio_file}' not found on disk.")
+
+    def test_audio_file_transcription_and_model_reporting(self):
+        """
+        Verify real Whisper speech-to-text inference on Hindi audio.
+        Validates Devanagari output and logs the exact model loaded.
+        """
+        result = transcribe_audio(self.audio_file)
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["language"], "hi")
+        self.assertIn("चाय", result["transcription"])
+        self.assertIn("कप", result["transcription"])
+
+        loaded_name = get_loaded_model_name()
+        self.assertIsNotNone(loaded_name)
+        self.assertEqual(result.get("model"), loaded_name)
+        print(f"\n[INTEGRATION TEST] Audio transcription succeeded.")
+        print(f"[INTEGRATION TEST] Actual model active in memory: '{loaded_name}'")
+        safe_output = result['transcription'].encode('ascii', errors='backslashreplace').decode('ascii')
+        print(f"[INTEGRATION TEST] Transcription output: '{safe_output}'")
+
+    def test_transcribe_endpoint_audio_regression(self):
+        """
+        Verify POST /transcribe with audio fixture followed by translation.
+        Ensures original transcription is preserved.
+        """
+        with open(self.audio_file, "rb") as f:
+            tx_res = self.client.post("/transcribe", data={"audio": (f, "test_hindi.wav")})
+        self.assertEqual(tx_res.status_code, 200)
+        tx_data = tx_res.get_json()
+        self.assertEqual(tx_data["status"], "success")
+        original_tx = tx_data["transcription"]
+        self.assertTrue(len(original_tx) > 0)
+
+        tr_res = self.client.post("/translate", json={
+            "text": original_tx,
+            "target_language": "English",
+        })
+        self.assertEqual(tr_res.status_code, 200)
+        tr_data = tr_res.get_json()
+        self.assertEqual(tr_data["source_text"], original_tx)
+        self.assertNotEqual(tr_data["translated_text"], original_tx)
+
+
+# Backward compatibility alias
+TranslationFeatureTests = TranslationFeatureUnitTests
 
 
 if __name__ == '__main__':

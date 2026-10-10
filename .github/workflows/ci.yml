@@ -1,0 +1,145 @@
+name: CI Pipeline — Speech Recognition Studio
+
+on:
+  push:
+    branches:
+      - main
+      - feature/voice-assistant-linux
+  pull_request:
+    branches:
+      - main
+      - feature/voice-assistant-linux
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Job A: Static Validation & Dependency Checking
+  # -------------------------------------------------------------------------
+  static-validation:
+    name: Job A — Static Validation & Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install System Dependencies (FFmpeg)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install Runtime Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      - name: Verify Python Bytecode Compilation
+        run: |
+          python -m compileall -q app.py utils
+
+      - name: Verify Core Imports & Flask URL Mapping
+        run: |
+          python -c "
+          import app
+          print('Flask application and routes imported successfully:')
+          print(app.app.url_map)
+          "
+
+      - name: Validate Dependency Tree (pip check)
+        run: |
+          python -m pip check
+
+  # -------------------------------------------------------------------------
+  # Job B: Unit, Route, and Security Tests (Fast / Zero Large Model Download)
+  # -------------------------------------------------------------------------
+  unit-and-route-tests:
+    name: Job B — Unit, Route & Security Tests
+    runs-on: ubuntu-latest
+    needs: static-validation
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      - name: Run Unit, Route & Security Test Suite
+        run: |
+          python -m unittest test_translation.TranslationFeatureUnitTests
+
+  # -------------------------------------------------------------------------
+  # Model Integration Verification: Real Audio Inference
+  # -------------------------------------------------------------------------
+  model-integration-verification:
+    name: Model Integration Verification
+    runs-on: ubuntu-latest
+    needs: static-validation
+    env:
+      # Use base model on GitHub Actions standard runner (2 vCPUs / 7 GB RAM) to prevent 3 GB download timeouts
+      WHISPER_MODEL: "base"
+      HF_HOME: "/tmp/hf_cache"
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install System Dependencies (FFmpeg)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      - name: Run Real Audio Transcription & Regression Integration Tests
+        run: |
+          python -m unittest test_translation.WhisperModelIntegrationTests
+
+  # -------------------------------------------------------------------------
+  # Job C: Docker Container Build Validation
+  # -------------------------------------------------------------------------
+  docker-build-verification:
+    name: Job C — Docker Container Build Validation
+    runs-on: ubuntu-latest
+    needs: [unit-and-route-tests, model-integration-verification]
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image (Validation Only)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: speech-recognition-studio:ci-test

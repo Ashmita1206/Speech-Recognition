@@ -24,3 +24,7 @@ huggingface/
 
 static/spectrograms/
 
+
+# Local verification environments and temporary downloads
+clean_venv/
+clean_tmp/
