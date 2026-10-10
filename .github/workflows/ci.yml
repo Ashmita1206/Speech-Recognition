@@ -83,18 +83,7 @@ jobs:
 
       - name: Run Unit, Route & Security Test Suite
         run: |
-          python -m unittest test_translation.TranslationFeatureTests.test_get_languages
-          python -m unittest test_translation.TranslationFeatureTests.test_voice_command_detection
-          python -m unittest test_translation.TranslationFeatureTests.test_test_b_hindi_to_english
-          python -m unittest test_translation.TranslationFeatureTests.test_test_c_english_to_hindi
-          python -m unittest test_translation.TranslationFeatureTests.test_test_d_english_to_spanish
-          python -m unittest test_translation.TranslationFeatureTests.test_test_e_changing_language
-          python -m unittest test_translation.TranslationFeatureTests.test_test_f_translation_failure
-          python -m unittest test_translation.TranslationFeatureTests.test_translate_endpoint_errors
-          python -m unittest test_translation.TranslationFeatureTests.test_frontend_contains_translation_elements
-          python -m unittest test_translation.TranslationFeatureTests.test_security_system_commands_disabled_by_default
-          python -m unittest test_translation.TranslationFeatureTests.test_security_invalid_confirmation_tokens
-          python -m unittest test_translation.TranslationFeatureTests.test_transcribe_validation_errors
+          python -m unittest test_translation.TranslationFeatureUnitTests
 
   # -------------------------------------------------------------------------
   # Model Integration Verification: Real Audio Inference
@@ -130,12 +119,7 @@ jobs:
 
       - name: Run Real Audio Transcription & Regression Integration Tests
         run: |
-          python -m unittest test_translation.TranslationFeatureTests.test_test_a_hindi_transcription
-          python -m unittest test_translation.TranslationFeatureTests.test_test_g_regression
-          python -c "
-          from utils.predict import get_loaded_model_name
-          print(f'Integration verification passed. Actual model loaded during run: {get_loaded_model_name()}')
-          "
+          python -m unittest test_translation.WhisperModelIntegrationTests
 
   # -------------------------------------------------------------------------
   # Job C: Docker Container Build Validation

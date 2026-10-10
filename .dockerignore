@@ -55,3 +55,32 @@ docs/
 scratch/
 logs/
 training_history.png
+
+
+# Local Python environments
+venv/
+clean_venv/
+.venv/
+
+# Whisper model weights and caches
+.hf_cache/
+HF_CACHE/
+.cache/
+
+# Temporary downloads
+clean_tmp/
+tmp/
+temp/
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+
+# Git history and local environment files
+.git/
+.env
+.env.*
+
+# Runtime uploads
+static/uploads/*
+!static/uploads/.gitkeep
