@@ -9,7 +9,9 @@ Validates all requirements:
   - Test E: Changing language (fresh translation of original sentence)
   - Test F: Translation failure returns clear error without returning input unchanged
   - Test G: Regression verification of /transcribe and original transcript preservation
-  - Plus language listing, voice command detection, and frontend template elements.
+  - Endpoint security tests: OS command execution gate, 403 Forbidden, token expiration
+  - Upload validation tests: Missing files, empty filenames, unsupported extensions
+  - Model lifecycle verification: Real model name tracking
 """
 
 import os
@@ -26,7 +28,8 @@ from utils.script_normalizer import (
     normalize_hindi_script,
     normalize_transcript,
 )
-from utils.predict import transcribe_audio
+from utils.predict import transcribe_audio, get_loaded_model_name
+from utils.commands import detect_command, execute_command, confirm_and_execute
 
 
 class TranslationFeatureTests(unittest.TestCase):
@@ -114,6 +117,10 @@ class TranslationFeatureTests(unittest.TestCase):
             self.assertEqual(result["language"], "hi")
             self.assertIn("चाय", result["transcription"])
             self.assertIn("कप", result["transcription"])
+            # Verify that loaded model is accurately identified
+            loaded_name = get_loaded_model_name()
+            self.assertIsNotNone(loaded_name)
+            self.assertEqual(result.get("model"), loaded_name)
 
     def test_test_b_hindi_to_english(self):
         """
@@ -283,6 +290,57 @@ class TranslationFeatureTests(unittest.TestCase):
         self.assertIn('btn-listen-translation', html)
         self.assertIn('trans-original-content', html)
         self.assertIn('trans-target-content', html)
+
+    # =========================================================================
+    # Endpoint Security & Input Validation Tests
+    # =========================================================================
+
+    def test_security_system_commands_disabled_by_default(self):
+        """Verify that system commands are blocked when ENABLE_SYSTEM_COMMANDS is false."""
+        with patch.dict(os.environ, {"ENABLE_SYSTEM_COMMANDS": "false"}):
+            # Safe built-in command executes without shell
+            cmd_time = detect_command("what time is it")
+            self.assertIsNotNone(cmd_time)
+            res_time = execute_command(cmd_time)
+            self.assertTrue(res_time["executed"])
+            self.assertIn("Current date and time", res_time["output"])
+
+            # OS shell command is safely blocked
+            cmd_browser = detect_command("open browser")
+            self.assertIsNotNone(cmd_browser)
+            res_browser = execute_command(cmd_browser)
+            self.assertFalse(res_browser["executed"])
+            self.assertIn("disabled on this server for security", res_browser["output"])
+
+            # POST /execute is rejected with 403 Forbidden
+            res_exec = self.client.post('/execute', json={
+                "confirmation_token": "fake-token",
+                "confirmed": True,
+            })
+            self.assertEqual(res_exec.status_code, 403)
+            data = res_exec.get_json()
+            self.assertIn("disabled", data["error"].lower())
+
+    def test_security_invalid_confirmation_tokens(self):
+        """Verify that invalid or missing confirmation tokens are rejected."""
+        with patch.dict(os.environ, {"ENABLE_SYSTEM_COMMANDS": "true"}):
+            res = confirm_and_execute("nonexistent-token-12345")
+            self.assertFalse(res["executed"])
+            self.assertIn("Invalid or expired", res["output"])
+
+    def test_transcribe_validation_errors(self):
+        """Verify /transcribe returns 400 on missing or invalid audio payloads."""
+        # No files provided
+        res = self.client.post('/transcribe')
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.get_json()["status"], "error")
+
+        # Unsupported extension
+        import io
+        fake_file = (io.BytesIO(b"fake data"), "malicious.exe")
+        res_bad_ext = self.client.post('/transcribe', data={"audio": fake_file})
+        self.assertEqual(res_bad_ext.status_code, 400)
+        self.assertIn("Unsupported audio format", res_bad_ext.get_json()["error"])
 
 
 if __name__ == '__main__':

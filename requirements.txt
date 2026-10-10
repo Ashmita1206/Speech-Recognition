@@ -1,17 +1,25 @@
-# ============================================
-# Speech Recognition – Whisper Edition
-# ============================================
-# Core
-Flask
+# =============================================================================
+# Speech Recognition Studio — Runtime Dependencies
+# =============================================================================
 
-# Whisper (OpenAI's local speech-to-text model)
-openai-whisper
+# Web Framework & Networking
+Flask>=3.0.0,<3.2.0
+requests>=2.31.0,<3.0.0
 
-# Audio conversion (mp3, webm, ogg → wav)
-pydub
-imageio-ffmpeg
+# Speech Recognition Engine (CTranslate2 INT8 CPU inference)
+faster-whisper==1.1.1
+ctranslate2==4.4.0
+av==18.1.0
+setuptools==80.9.0
 
-# Spectrogram visualization (optional)
-librosa
-matplotlib
-numpy
+# Audio Processing & Conversion
+pydub>=0.25.1
+imageio-ffmpeg>=0.5.1
+
+# Numerical & Visualization (Pinned NumPy 2.2.6 resolves Numba & SciPy bounds)
+numpy==2.2.6
+matplotlib>=3.8.0,<3.12.0
+librosa>=0.10.0,<0.12.0
+
+# Production WSGI Server (Linux / Docker deployment)
+gunicorn>=23.0.0

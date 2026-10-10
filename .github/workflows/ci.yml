@@ -1,0 +1,161 @@
+name: CI Pipeline — Speech Recognition Studio
+
+on:
+  push:
+    branches:
+      - main
+      - feature/voice-assistant-linux
+  pull_request:
+    branches:
+      - main
+      - feature/voice-assistant-linux
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # -------------------------------------------------------------------------
+  # Job A: Static Validation & Dependency Checking
+  # -------------------------------------------------------------------------
+  static-validation:
+    name: Job A — Static Validation & Dependencies
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install System Dependencies (FFmpeg)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install Runtime Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      - name: Verify Python Bytecode Compilation
+        run: |
+          python -m compileall -q app.py utils
+
+      - name: Verify Core Imports & Flask URL Mapping
+        run: |
+          python -c "
+          import app
+          print('Flask application and routes imported successfully:')
+          print(app.app.url_map)
+          "
+
+      - name: Validate Dependency Tree (pip check)
+        run: |
+          python -m pip check
+
+  # -------------------------------------------------------------------------
+  # Job B: Unit, Route, and Security Tests (Fast / Zero Large Model Download)
+  # -------------------------------------------------------------------------
+  unit-and-route-tests:
+    name: Job B — Unit, Route & Security Tests
+    runs-on: ubuntu-latest
+    needs: static-validation
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      - name: Run Unit, Route & Security Test Suite
+        run: |
+          python -m unittest test_translation.TranslationFeatureTests.test_get_languages
+          python -m unittest test_translation.TranslationFeatureTests.test_voice_command_detection
+          python -m unittest test_translation.TranslationFeatureTests.test_test_b_hindi_to_english
+          python -m unittest test_translation.TranslationFeatureTests.test_test_c_english_to_hindi
+          python -m unittest test_translation.TranslationFeatureTests.test_test_d_english_to_spanish
+          python -m unittest test_translation.TranslationFeatureTests.test_test_e_changing_language
+          python -m unittest test_translation.TranslationFeatureTests.test_test_f_translation_failure
+          python -m unittest test_translation.TranslationFeatureTests.test_translate_endpoint_errors
+          python -m unittest test_translation.TranslationFeatureTests.test_frontend_contains_translation_elements
+          python -m unittest test_translation.TranslationFeatureTests.test_security_system_commands_disabled_by_default
+          python -m unittest test_translation.TranslationFeatureTests.test_security_invalid_confirmation_tokens
+          python -m unittest test_translation.TranslationFeatureTests.test_transcribe_validation_errors
+
+  # -------------------------------------------------------------------------
+  # Model Integration Verification: Real Audio Inference
+  # -------------------------------------------------------------------------
+  model-integration-verification:
+    name: Model Integration Verification
+    runs-on: ubuntu-latest
+    needs: static-validation
+    env:
+      # Use base model on GitHub Actions standard runner (2 vCPUs / 7 GB RAM) to prevent 3 GB download timeouts
+      WHISPER_MODEL: "base"
+      HF_HOME: "/tmp/hf_cache"
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install System Dependencies (FFmpeg)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+
+      - name: Run Real Audio Transcription & Regression Integration Tests
+        run: |
+          python -m unittest test_translation.TranslationFeatureTests.test_test_a_hindi_transcription
+          python -m unittest test_translation.TranslationFeatureTests.test_test_g_regression
+          python -c "
+          from utils.predict import get_loaded_model_name
+          print(f'Integration verification passed. Actual model loaded during run: {get_loaded_model_name()}')
+          "
+
+  # -------------------------------------------------------------------------
+  # Job C: Docker Container Build Validation
+  # -------------------------------------------------------------------------
+  docker-build-verification:
+    name: Job C — Docker Container Build Validation
+    runs-on: ubuntu-latest
+    needs: [unit-and-route-tests, model-integration-verification]
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image (Validation Only)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: speech-recognition-studio:ci-test
